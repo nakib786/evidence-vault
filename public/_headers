@@ -1,0 +1,15 @@
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; child-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self' https://a.pool.opentimestamps.org https://b.pool.opentimestamps.org https://a.pool.eternitywall.com https://finney.calendar.eternitywall.com; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'; upgrade-insecure-requests
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Cross-Origin-Opener-Policy: same-origin
+  Permissions-Policy: camera=(self), microphone=(self), geolocation=(), payment=(), usb=(), interest-cohort=()
+  X-Frame-Options: DENY
+
+# `media-src` must name blob: explicitly. Recorded video is previewed and sampled for the
+# report through a blob: URL, and without this it falls back to default-src 'self', which
+# blocks it. Caught only in production -- the dev server ships no CSP at all.
+#
+# `data:` is present in font-src because jsPDF inlines its standard font metrics as
+# data: URIs to measure text; blocking them silently degrades line wrapping in the PDF.
+# It cannot be used to exfiltrate anything — a data: URI carries no network request.

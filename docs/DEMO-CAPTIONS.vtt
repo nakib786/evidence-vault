@@ -1,0 +1,105 @@
+WEBVTT
+
+1
+00:00:00.000 --> 00:00:12.000
+Someone shouts abuse at a woman on a bus.
+Someone posts a threat about a mosque.
+
+2
+00:00:12.000 --> 00:00:20.000
+By the time anyone reports it, the post is deleted -
+or the video is just a file anyone could have edited.
+
+3
+00:00:20.000 --> 00:00:35.000
+This is Evidence Vault. There's a short walkthrough
+the first time you open it - and you can skip it.
+
+4
+00:00:35.000 --> 00:00:48.000
+Most of what this documents is spoken, not written.
+So the main way in is video, with sound.
+
+5
+00:00:48.000 --> 00:01:00.000
+It's fingerprinted the moment you stop recording,
+before it's ever a file that could be edited.
+
+6
+00:01:00.000 --> 00:01:08.000
+That fingerprint is a SHA-256 hash.
+Change a single frame and it changes completely.
+
+7
+00:01:08.000 --> 00:01:20.000
+Only the fingerprint goes to four independent
+OpenTimestamps servers, registered on a public blockchain ledger.
+
+8
+00:01:20.000 --> 00:01:32.000
+Your recording never goes anywhere.
+
+9
+00:01:32.000 --> 00:01:45.000
+The recording stays blurred until they choose to look.
+Every field is optional.
+
+10
+00:01:45.000 --> 00:01:56.000
+They choose the category themselves.
+We ship no AI classifier.
+
+11
+00:01:56.000 --> 00:02:05.000
+On-device text recognition in English, Arabic and Urdu,
+running in the browser.
+
+12
+00:02:05.000 --> 00:02:12.000
+Then the part most tools skip.
+Where does this actually go?
+
+13
+00:02:12.000 --> 00:02:25.000
+No police force or court in the US or Canada accepts
+evidence through an automated submission.
+
+14
+00:02:25.000 --> 00:02:40.000
+Most police services have no online hate-crime form.
+The NYPD tells you to call your precinct.
+
+15
+00:02:40.000 --> 00:02:52.000
+For a lawyer or a court, it generates a
+certificate of authenticity.
+
+16
+00:02:52.000 --> 00:03:00.000
+Written to Federal Rules of Evidence 902,
+or the Canada Evidence Act.
+
+17
+00:03:00.000 --> 00:03:15.000
+The export is five files: report, original recording,
+proof, certificate, and a plain-text cover letter.
+
+18
+00:03:15.000 --> 00:03:25.000
+I'm verifying with the official OpenTimestamps client -
+not our code.
+
+19
+00:03:25.000 --> 00:03:45.000
+Anyone can run that check, anywhere, and it keeps working
+even if this project disappears tomorrow.
+
+20
+00:03:45.000 --> 00:03:52.000
+No account. No database. No analytics.
+Closing the tab deletes everything.
+
+21
+00:03:52.000 --> 00:04:00.000
+A timestamp proves when a file existed and that it hasn't
+changed - not that its contents are true.
