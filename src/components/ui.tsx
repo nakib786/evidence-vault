@@ -55,7 +55,14 @@ export function Card({
   as?: 'section' | 'div';
 } & HTMLAttributes<HTMLElement>) {
   return (
-    <Tag className={`rounded-2xl border border-line bg-surface p-5 ${className}`} {...rest}>
+    <Tag
+      className={
+        'rounded-2xl border border-line bg-surface p-5 ' +
+        'shadow-[0_1px_2px_rgb(15_23_42_/_0.04),0_12px_28px_-16px_rgb(15_23_42_/_0.16)] ' +
+        className
+      }
+      {...rest}
+    >
       {children}
     </Tag>
   );
@@ -152,6 +159,54 @@ export function Field({
 export const inputClass =
   'w-full rounded-xl border border-line-strong bg-surface px-4 py-3 text-base text-ink ' +
   'placeholder:text-ink-subtle focus:border-accent focus:outline-none';
+
+/**
+ * One downloadable file in an export bundle: title, filename, what it is, and a Save
+ * button. Shared between the single-item and multi-item export screens so a package's
+ * per-item files (original, proof, certificate) look identical to a single record's.
+ */
+export function DownloadRow({
+  title,
+  filename,
+  description,
+  onDownload,
+  disabled = false,
+  done = false,
+  busyLabel,
+}: {
+  title: string;
+  filename: string;
+  description: string;
+  onDownload: () => void;
+  disabled?: boolean;
+  done?: boolean;
+  busyLabel?: string;
+}) {
+  return (
+    <div className="flex flex-col gap-3 border-b border-line pb-4 last:border-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex-1">
+        <h3 className="font-display text-base font-bold text-ink">
+          {title}
+          {done ? (
+            <span className="ml-2 rounded-full bg-affirm-soft px-2 py-0.5 align-middle text-xs font-semibold text-affirm">
+              Saved
+            </span>
+          ) : null}
+        </h3>
+        <p className="mt-1 font-mono text-xs text-ink-subtle">{filename}</p>
+        <p className="mt-1.5 text-sm text-ink-muted">{description}</p>
+      </div>
+      <Button
+        variant={done ? 'secondary' : 'primary'}
+        className="shrink-0 sm:w-36"
+        onClick={onDownload}
+        disabled={disabled}
+      >
+        {busyLabel ?? (done ? 'Save again' : 'Save')}
+      </Button>
+    </div>
+  );
+}
 
 /** Progress through the four screens, announced to assistive tech. */
 export function StepIndicator({ current, steps }: { current: number; steps: string[] }) {

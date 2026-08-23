@@ -31,3 +31,6 @@ public/tesseract/
 
 # wrangler local dev artifacts
 .wrangler/
+
+# local dev-tool config, not part of the submission
+.claude/

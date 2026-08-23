@@ -202,3 +202,163 @@ export function buildCoverLetter(record: EvidenceRecord, { stem, evidenceFilenam
 
   return parts.join('\n');
 }
+
+interface PackageOptions {
+  packageId: string;
+  reportFilename: string;
+  /** Filename for each item, in the same order as `records`. */
+  evidenceFilenames: string[];
+}
+
+/**
+ * The multi-item counterpart to `buildCoverLetter`. Each item keeps its own account,
+ * classification and transcript — those are genuinely per-item, the same reason the PDF
+ * report gives each one its own section rather than merging them — while the files list
+ * and the handover routing (chosen once, for the whole package) are stated together.
+ */
+export function buildPackageCoverLetter(
+  records: EvidenceRecord[],
+  { packageId, reportFilename, evidenceFilenames }: PackageOptions,
+): string {
+  const handover = records[0]?.handover;
+  const country = handover?.countryId ? findCountry(handover.countryId) : undefined;
+  const region = country && handover?.regionId ? findRegion(country, handover.regionId) : undefined;
+
+  const chosen: Agency[] = [];
+  if (country && handover) {
+    const pool = [...country.national, ...country.community, ...(region?.agencies ?? [])];
+    for (const id of handover.selectedAgencyIds) {
+      const found = pool.find((a) => a.id === id);
+      if (found) chosen.push(found);
+    }
+  }
+
+  const parts: string[] = [];
+
+  parts.push('REPORT OF A HATE-MOTIVATED INCIDENT');
+  parts.push('');
+  parts.push(`Package reference: ${packageId}`);
+  parts.push(`Items in this package: ${records.length}`);
+  parts.push(`Prepared: ${new Date().toLocaleString()}`);
+  if (handover?.declarantName) parts.push(`Reported by: ${handover.declarantName}`);
+  if (handover?.declarantContact) parts.push(`Contact: ${handover.declarantContact}`);
+  parts.push('');
+
+  if (chosen.length > 0) {
+    parts.push(`Intended for: ${chosen.map((a) => a.name).join('; ')}`);
+    parts.push('');
+  }
+
+  // ---- What's being reported, per item ------------------------------------
+  parts.push(heading('1. WHAT IS BEING REPORTED'));
+  parts.push('');
+  records.forEach((record, i) => {
+    const captured = new Date(record.capturedAt);
+    parts.push(
+      `Item ${i + 1} of ${records.length} — ${record.kind === 'video' ? 'video recording' : 'still image'}, ` +
+        `captured ${captured.toLocaleDateString()} at ${captured.toLocaleTimeString()} (${record.timeZone}).`,
+    );
+    if (record.details.platform) parts.push(`  Where it happened: ${record.details.platform}`);
+    if (record.details.sourceUrl) parts.push(`  Link to the content: ${record.details.sourceUrl}`);
+    if (record.details.category) {
+      parts.push(`  Category (as described by the reporter): ${labelFor(CATEGORIES, record.details.category)}`);
+    }
+    if (record.details.severity) {
+      parts.push(`  Severity (as described by the reporter): ${labelFor(SEVERITIES, record.details.severity)}`);
+    }
+    if (record.kind === 'video') {
+      parts.push(
+        `  Recording length: ${record.durationSeconds ? formatDuration(record.durationSeconds) : 'not available'}`,
+      );
+    }
+    if (record.details.note.trim()) {
+      parts.push(`  Reporter's account: ${wrap(record.details.note.trim(), 68).split('\n').join('\n    ')}`);
+    }
+    if (record.details.transcript.trim()) {
+      parts.push(
+        `  ${record.kind === 'video' ? 'What was said' : 'Text visible in the image'}: ` +
+          wrap(record.details.transcript.trim(), 68).split('\n').join('\n    '),
+      );
+    }
+    parts.push('');
+  });
+
+  // ---- Files ----------------------------------------------------------------
+  parts.push(heading('2. FILES IN THIS PACKAGE'));
+  parts.push('');
+  parts.push(`  ${reportFilename}`);
+  parts.push('      The full report, covering every item and how to verify each one.');
+  records.forEach((record, i) => {
+    const evidenceFilename = evidenceFilenames[i];
+    parts.push(`  ${evidenceFilename}`);
+    parts.push(`      Item ${i + 1}, exactly as captured. Do not edit or re-save it.`);
+    if (record.proof) {
+      parts.push(`  ${evidenceFilename}.ots`);
+      parts.push(`      An OpenTimestamps proof of when item ${i + 1} existed.`);
+    }
+    if (record.handover?.includeCertificate) {
+      parts.push(`  evidence-${record.id}-certificate.pdf`);
+      parts.push(`      A signed certificate of authenticity for item ${i + 1}.`);
+    }
+  });
+  parts.push('');
+
+  // ---- Integrity ------------------------------------------------------------
+  parts.push(heading('3. INTEGRITY'));
+  parts.push('');
+  records.forEach((record, i) => {
+    parts.push(`Item ${i + 1} — SHA-256 of the original file:`);
+    parts.push(`  ${formatDigestForHumans(record.digestHex)}`);
+    if (record.proof) {
+      const ok = record.proof.calendars.filter((c) => c.ok);
+      parts.push(
+        wrap(
+          `  Submitted to ${ok.length} independent OpenTimestamps calendar servers on ` +
+            `${new Date(record.proof.submittedAt).toLocaleString()}.`,
+          68,
+        )
+          .split('\n')
+          .join('\n  '),
+      );
+    } else {
+      parts.push('  No timestamp proof is attached to this item.');
+    }
+    parts.push('');
+  });
+  parts.push('To verify any item yourself, without relying on the reporter or the software used:');
+  parts.push('');
+  parts.push('  pip install opentimestamps-client');
+  parts.push('  ots verify <item-file>.ots');
+  parts.push('');
+  parts.push(wrap('Or upload a file and its proof at https://opentimestamps.org to check in a browser.'));
+  parts.push('');
+
+  // ---- Limits -----------------------------------------------------------------
+  parts.push(heading('4. WHAT THIS DOES AND DOES NOT ESTABLISH'));
+  parts.push('');
+  parts.push('Establishes:');
+  parts.push(wrap('  - Each exact file existed no later than its timestamp stated above.'));
+  parts.push(wrap('  - No file has been altered since. Any change breaks that file’s proof.'));
+  parts.push('');
+  parts.push('Does not establish:');
+  parts.push(
+    wrap(
+      '  - That the content shown is genuine, or that any account named published it. A timestamp ' +
+        'proves when a file existed, not that its contents are true.',
+    ),
+  );
+  parts.push(wrap('  - Who created the content, or their intent.'));
+  parts.push(wrap('  - Any legal conclusion.'));
+  parts.push('');
+
+  parts.push(
+    wrap(
+      'This package was produced with Evidence Vault, an open source tool that runs entirely on ' +
+        'the reporter’s own device. The content was never uploaded to any server. Source code: ' +
+        'https://github.com/nakib786/evidence-vault',
+    ),
+  );
+  parts.push('');
+
+  return parts.join('\n');
+}

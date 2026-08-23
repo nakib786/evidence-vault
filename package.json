@@ -11,6 +11,7 @@
     "predev": "node scripts/copy-ocr-assets.mjs",
     "prebuild": "node scripts/copy-ocr-assets.mjs",
     "test:ots": "node scripts/ots-verify-roundtrip.mjs",
+    "test:ots-upgrade": "node scripts/ots-upgrade-check.mjs",
     "fixtures": "node scripts/make-fixtures.mjs"
   },
   "dependencies": {

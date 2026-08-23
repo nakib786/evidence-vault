@@ -1,0 +1,12 @@
+/** Trigger a browser download for an in-memory blob. */
+export function download(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Revoked on the next tick so the download has started.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}

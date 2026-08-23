@@ -1,205 +1,193 @@
 /**
- * Screen 4 — hand the record over and get out.
+ * Screen 5 — hand the record over and get out.
  *
  * No dashboard, no account, no "are you sure you want to leave". The user came here to
  * produce something they can send to someone else; once they have it, the job is done.
- *
- * The files are offered separately rather than as one archive because the pairing matters:
- * the proof only verifies against the *original* file, and saying so plainly is more
- * useful than hiding it inside a zip.
+ * A copy also goes to the vault by default — the export screen triggers that save itself,
+ * on mount, rather than waiting for a click — because a record someone forgot to save is a
+ * worse failure mode than one they have to actively discard. Discarding it stays one tap
+ * away ("Don't keep this copy") and is honoured immediately, including undoing a save
+ * that's still in flight — see `handleOptOut` below.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, Callout, Card } from './ui';
-import { buildReportPdf, needsCompanionTextFile } from '../lib/pdf';
-import { extensionForMime } from '../lib/media';
-import { buildCertificatePdf } from '../lib/certificate';
-import { buildCoverLetter } from '../lib/coverletter';
+import PackageExportBundle from './PackageExportBundle';
+import { DEFAULT_DEMO_PIN } from '../lib/vaultCrypto';
 import type { EvidenceRecord } from '../lib/types';
+import type { useVault } from './useVault';
 
 interface Props {
-  record: EvidenceRecord;
+  items: EvidenceRecord[];
+  packageId: string;
+  vault: ReturnType<typeof useVault>;
   onStartOver: () => void;
+  onOpenVault: () => void;
 }
 
-function download(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  // Revoked on the next tick so the download has started.
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
+export default function ExportScreen({ items, packageId, vault, onStartOver, onOpenVault }: Props) {
+  const [pin, setPin] = useState(DEFAULT_DEMO_PIN);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [optedOut, setOptedOut] = useState(false);
+  // Mirrors `optedOut` for the in-flight save loop to check without a stale closure — a
+  // click on "Don't keep this copy" while `handleSave` is mid-`await` needs to be seen by
+  // that same still-running call, not just by the next render.
+  const optedOutRef = useRef(false);
+  const savedCount = items.filter((r) => vault.entries.some((e) => e.record.id === r.id)).length;
+  const allSaved = savedCount === items.length;
+  const multi = items.length > 1;
 
-export default function ExportScreen({ record, onStartOver }: Props) {
-  const [pdf, setPdf] = useState<Blob | null>(null);
-  const [certificate, setCertificate] = useState<Blob | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState<Set<string>>(new Set());
+  const handleSave = async (): Promise<void> => {
+    setSaveError(null);
+    setSaving(true);
+    try {
+      if (!vault.unlocked) {
+        const ok = await vault.unlock(pin);
+        if (!ok) {
+          setSaveError('That PIN doesn’t match the vault on this device.');
+          return;
+        }
+      }
+      // Every item is saved as its own ordinary vault entry — the vault has always stored
+      // one record per entry, and a package is nothing more to it than several of those
+      // saved together. Nothing about the vault's storage format needs to know a package
+      // exists.
+      for (const record of items) {
+        if (optedOutRef.current) break;
+        if (!vault.entries.some((e) => e.record.id === record.id)) {
+          await vault.save(record);
+        }
+      }
+      if (optedOutRef.current) {
+        for (const record of items) {
+          if (vault.entries.some((e) => e.record.id === record.id)) {
+            await vault.remove(record.id);
+          }
+        }
+      }
+    } catch {
+      setSaveError(
+        multi ? 'Not every item could be saved to the vault.' : 'The record could not be saved to the vault.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
 
-  const stem = `evidence-${record.id}`;
-  const isVideoRecord = record.kind === 'video';
-  const imageName = `${stem}.${extensionForMime(record.mimeType)}`;
-  const hasNonLatinTranscript = needsCompanionTextFile(record.details.transcript);
-
+  // Auto-save on arrival — the vault keeps a copy by default. Fires once per visit to this
+  // screen (a fresh mount each time, per `App.tsx`'s conditional rendering by step).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    let cancelled = false;
-    buildReportPdf(record)
-      .then((blob) => {
-        if (!cancelled) setPdf(blob);
-      })
-      .catch(() => {
-        if (!cancelled) setError('The report could not be generated.');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [record]);
+    void handleSave();
+  }, []);
 
-  useEffect(() => {
-    // No synchronous setState here: when no certificate is wanted there is nothing to
-    // clear, because `certificate` only ever moves from null to a built blob.
-    if (!record.handover?.includeCertificate) return;
-    let cancelled = false;
-    buildCertificatePdf({
-      record,
-      evidenceFilename: imageName,
-      proofFilename: record.proof ? `${imageName}.ots` : undefined,
-    })
-      .then((blob) => {
-        if (!cancelled) setCertificate(blob);
-      })
-      .catch(() => {
-        if (!cancelled) setError('The certificate could not be generated.');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [record, imageName]);
+  const handleOptOut = async (): Promise<void> => {
+    optedOutRef.current = true;
+    setOptedOut(true);
+    if (saving) return; // the running handleSave's post-loop check will clean up
+    for (const record of items) {
+      if (vault.entries.some((e) => e.record.id === record.id)) {
+        await vault.remove(record.id);
+      }
+    }
+  };
 
-  const mark = (key: string) => setSaved((prev) => new Set(prev).add(key));
+  const handleKeepAfterAll = async (): Promise<void> => {
+    optedOutRef.current = false;
+    setOptedOut(false);
+    await handleSave();
+  };
 
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <h1 className="font-display text-2xl font-bold text-ink">Your record is ready</h1>
+        <h1 className="font-display text-2xl font-bold text-ink">
+          {multi ? `Your report is ready (${items.length} items)` : 'Your record is ready'}
+        </h1>
         <p className="text-ink-muted">
-          Save these files somewhere you trust. Nothing is stored here — once you close this page,
-          it is gone from the app.
+          Save these files somewhere you trust. A copy is also kept in your vault on this
+          device by default — remove it below if you’d rather nothing was kept.
         </p>
       </div>
 
-      {error ? <Callout tone="caution" title="Something went wrong">{error}</Callout> : null}
+      <PackageExportBundle items={items} packageId={packageId} />
 
-      <Card className="space-y-4" data-tour="downloads">
-        <DownloadRow
-          title="Evidence report"
-          filename={`${stem}.pdf`}
-          description={
-            isVideoRecord
-              ? 'The document to send onward. Contains sampled frames from the recording, your account, the fingerprint, and instructions for verifying it.'
-              : 'The document to send onward. Contains the image, your account, the fingerprint, and instructions for verifying it.'
-          }
-          disabled={!pdf}
-          done={saved.has('pdf')}
-          onDownload={() => {
-            if (pdf) {
-              download(pdf, `${stem}.pdf`);
-              mark('pdf');
-            }
-          }}
-          busyLabel={pdf ? undefined : 'Preparing…'}
-        />
+      {/* ---- Vault (on by default, one tap to opt out) ----------------------- */}
+      <Card className="space-y-4">
+        <div>
+          <h2 className="font-display text-lg font-bold text-ink">A copy is kept in your vault</h2>
+          <p className="mt-1 text-sm text-ink-muted">
+            Stored on this device only, encrypted with a PIN, so you can come back to it, check
+            whether the timestamp has confirmed yet, and re-download these files again later for a
+            lawyer or police — without redoing this flow.
+          </p>
+        </div>
 
-        <DownloadRow
-          title={isVideoRecord ? 'Original recording' : 'Original image'}
-          filename={imageName}
-          description={
-            isVideoRecord
-              ? 'Keep this exactly as it is. The proof only verifies against these precise bytes — re-encoding, trimming or compressing the video will break the match.'
-              : 'Keep this exactly as it is. The proof below only verifies against these precise bytes — re-saving, cropping or resizing it will break the match.'
-          }
-          done={saved.has('image')}
-          onDownload={() => {
-            download(record.blob, imageName);
-            mark('image');
-          }}
-        />
+        {optedOut ? (
+          <div className="space-y-3">
+            <Callout tone="info" title="Not kept">
+              {multi ? 'These items were' : 'This record was'} not saved anywhere. Closing this page
+              deletes {multi ? 'them' : 'it'} for good.
+            </Callout>
+            <Button variant="quiet" onClick={handleKeepAfterAll} disabled={saving}>
+              Keep a copy after all
+            </Button>
+          </div>
+        ) : allSaved ? (
+          <div className="space-y-3">
+            <Callout tone="affirm" title={multi ? 'All items saved to your vault' : 'Saved to your vault'}>
+              You can open them any time from “Vault” at the top of the page.
+            </Callout>
+            <Button variant="quiet" onClick={handleOptOut}>
+              Don’t keep this copy
+            </Button>
+          </div>
+        ) : (
+          <>
+            {saving ? <p className="text-sm text-ink-muted">Saving to your vault…</p> : null}
 
-        {record.proof ? (
-          <DownloadRow
-            title="Timestamp proof"
-            filename={`${imageName}.ots`}
-            description="An OpenTimestamps proof file. Anyone can check it with the standard tooling — it does not depend on this app existing."
-            done={saved.has('ots')}
-            onDownload={() => {
-              download(
-                new Blob([record.proof!.ots as unknown as BlobPart], { type: 'application/octet-stream' }),
-                `${imageName}.ots`,
-              );
-              mark('ots');
-            }}
-          />
-        ) : null}
+            {!vault.unlocked ? (
+              <div className="space-y-1.5">
+                <label htmlFor="export-vault-pin" className="block text-sm font-semibold text-ink">
+                  Vault PIN
+                </label>
+                <input
+                  id="export-vault-pin"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  className="w-full rounded-xl border border-line-strong bg-surface px-4 py-3 text-base text-ink focus:border-accent focus:outline-none"
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value)}
+                />
+                <p className="text-xs text-ink-subtle">
+                  Demo PIN: {DEFAULT_DEMO_PIN} — prefilled. Not real security; see “Vault” for what
+                  that means.
+                </p>
+              </div>
+            ) : null}
 
-        {record.handover?.includeCertificate ? (
-          <DownloadRow
-            title="Certificate of authenticity"
-            filename={`${stem}-certificate.pdf`}
-            description="Print this, sign it by hand, and keep it with the other files. Written to the evidence rules of the jurisdiction you chose, for a lawyer to review and adopt."
-            disabled={!certificate}
-            done={saved.has('cert')}
-            busyLabel={certificate ? undefined : 'Preparing…'}
-            onDownload={() => {
-              if (certificate) {
-                download(certificate, `${stem}-certificate.pdf`);
-                mark('cert');
-              }
-            }}
-          />
-        ) : null}
+            {saveError ? <Callout tone="caution" title="Couldn’t save that">{saveError}</Callout> : null}
 
-        {record.handover?.countryId ? (
-          <DownloadRow
-            title="Cover letter"
-            filename={`${stem}-cover-letter.txt`}
-            description="A plain-text summary you can paste into an email or an online reporting form, listing what is in the package and how to verify it."
-            done={saved.has('letter')}
-            onDownload={() => {
-              download(
-                new Blob([buildCoverLetter(record, { stem, evidenceFilename: imageName })], {
-                  type: 'text/plain;charset=utf-8',
-                }),
-                `${stem}-cover-letter.txt`,
-              );
-              mark('letter');
-            }}
-          />
-        ) : null}
-
-        {hasNonLatinTranscript ? (
-          <DownloadRow
-            title="Transcript"
-            filename={`${stem}-transcript.txt`}
-            description="The transcript in UTF-8. Included separately because the PDF's fonts cannot render every script."
-            done={saved.has('txt')}
-            onDownload={() => {
-              download(
-                new Blob([record.details.transcript], { type: 'text/plain;charset=utf-8' }),
-                `${stem}-transcript.txt`,
-              );
-              mark('txt');
-            }}
-          />
-        ) : null}
+            <div className="flex flex-wrap gap-3">
+              <Button variant="secondary" onClick={handleSave} disabled={saving}>
+                {saving
+                  ? 'Saving…'
+                  : saveError
+                    ? 'Try again'
+                    : multi
+                      ? savedCount > 0
+                        ? `Save the rest (${items.length - savedCount}) to vault`
+                        : `Save all ${items.length} to vault`
+                      : 'Save to vault'}
+              </Button>
+              <Button variant="quiet" onClick={handleOptOut} disabled={saving}>
+                Don’t keep this copy
+              </Button>
+            </div>
+          </>
+        )}
       </Card>
-
-      <Callout tone="info" title="Keep the image and the proof file together">
-        The proof verifies one specific file. If they are separated, or the image is edited, the
-        proof can no longer be checked. Storing both in the same folder is enough.
-      </Callout>
 
       <Card className="space-y-3">
         <h2 className="font-display text-lg font-bold text-ink">What you might do next</h2>
@@ -224,51 +212,13 @@ export default function ExportScreen({ record, onStartOver }: Props) {
         </p>
       </Card>
 
+      {savedCount > 0 ? (
+        <Button variant="quiet" block onClick={onOpenVault}>
+          Open the vault
+        </Button>
+      ) : null}
       <Button variant="quiet" block onClick={onStartOver}>
         Document something else
-      </Button>
-    </div>
-  );
-}
-
-function DownloadRow({
-  title,
-  filename,
-  description,
-  onDownload,
-  disabled = false,
-  done = false,
-  busyLabel,
-}: {
-  title: string;
-  filename: string;
-  description: string;
-  onDownload: () => void;
-  disabled?: boolean;
-  done?: boolean;
-  busyLabel?: string;
-}) {
-  return (
-    <div className="flex flex-col gap-3 border-b border-line pb-4 last:border-0 last:pb-0 sm:flex-row sm:items-start sm:justify-between">
-      <div className="flex-1">
-        <h3 className="font-display text-base font-bold text-ink">
-          {title}
-          {done ? (
-            <span className="ml-2 rounded-full bg-affirm-soft px-2 py-0.5 align-middle text-xs font-semibold text-affirm">
-              Saved
-            </span>
-          ) : null}
-        </h3>
-        <p className="mt-1 font-mono text-xs text-ink-subtle">{filename}</p>
-        <p className="mt-1.5 text-sm text-ink-muted">{description}</p>
-      </div>
-      <Button
-        variant={done ? 'secondary' : 'primary'}
-        className="shrink-0 sm:w-36"
-        onClick={onDownload}
-        disabled={disabled}
-      >
-        {busyLabel ?? (done ? 'Save again' : 'Save')}
       </Button>
     </div>
   );

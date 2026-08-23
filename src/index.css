@@ -88,6 +88,25 @@
   }
 }
 
+/*
+ * A ledger/security-paper texture behind the whole app: a faint engraved crosshatch plus a
+ * grain layer. Both are inline SVG data URIs — no network request, no external image host,
+ * which matters here because SECURITY.md's whole claim is zero egress. The crosshatch is
+ * two corner-to-corner diagonals per tile, which is what makes it repeat with no visible
+ * seam; the grain is the standard feTurbulence-into-feColorMatrix trick for film-grain
+ * noise, kept under 4% alpha so it reads as texture rather than dirt.
+ */
+@layer components {
+  .app-texture {
+    background-color: var(--color-canvas);
+    background-image:
+      url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='40'%20height='40'%3E%3Cpath%20d='M0%200L40%2040M40%200L0%2040'%20stroke='%231e293b'%20stroke-opacity='0.05'/%3E%3C/svg%3E"),
+      url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='180'%20height='180'%3E%3Cfilter%20id='n'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.85'%20numOctaves='2'%20stitchTiles='stitch'/%3E%3CfeColorMatrix%20type='matrix'%20values='0%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200.02%200.035%200.007%200%200'/%3E%3C/filter%3E%3Crect%20width='100%25'%20height='100%25'%20filter='url(%23n)'/%3E%3C/svg%3E");
+    background-repeat: repeat, repeat;
+    background-size: 40px 40px, 180px 180px;
+  }
+}
+
 @layer utilities {
   /* Visible only to assistive tech. */
   .sr-only {
@@ -181,6 +200,82 @@
   .driver-popover.ev-tour .driver-popover-close-btn:hover {
     color: var(--color-ink);
   }
+
+  /* The autoplay dwell timer for the current step, filling left to right over 10s. */
+  .driver-popover.ev-tour .ev-tour-autobar {
+    height: 3px;
+    margin-bottom: 0.75rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background-color: var(--color-line);
+  }
+
+  .driver-popover.ev-tour .ev-tour-autobar-fill {
+    display: block;
+    height: 100%;
+    width: 0%;
+    border-radius: inherit;
+    background-color: var(--color-accent);
+    animation-name: ev-tour-autobar-fill;
+    animation-timing-function: linear;
+    animation-fill-mode: forwards;
+  }
+
+  @keyframes ev-tour-autobar-fill {
+    from {
+      width: 0%;
+    }
+    to {
+      width: 100%;
+    }
+  }
+
+  .driver-popover.ev-tour .ev-tour-playpause {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border-radius: 999px;
+    border: 1px solid var(--color-line-strong);
+    background-color: transparent;
+    color: var(--color-ink-muted);
+    cursor: pointer;
+  }
+
+  .driver-popover.ev-tour .ev-tour-playpause:hover,
+  .driver-popover.ev-tour .ev-tour-playpause:focus-visible {
+    background-color: var(--color-sunken);
+    color: var(--color-ink);
+  }
+}
+
+/* A user who has paused autoplay shouldn't have it silently resume just because motion is
+   reduced elsewhere, but the fill's continuous animation is exactly the motion that setting
+   asks to remove — so it's shown as a static full bar instead of an animated one. */
+@media (prefers-reduced-motion: reduce) {
+  .driver-popover.ev-tour .ev-tour-autobar-fill {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+}
+
+/*
+ * driver.js sets `pointer-events: none` on every element in the document while a tour
+ * runs, re-enabling only the highlighted element and its own popover. Left alone, that
+ * makes our own "End tour" control -- the obvious, visible way out -- silently inert,
+ * leaving only Escape or driver's own small close icon. DESIGN.md's first principle is
+ * that a flow must be exitable at any point, so this one control needs to keep working.
+ *
+ * This rule is deliberately kept OUTSIDE any @layer. Tailwind's own rules above all sit
+ * inside cascade layers, and driver.css (loaded at runtime, unlayered) beats every layered
+ * rule regardless of specificity or source order per the CSS cascade-layers spec. Putting
+ * this here, unlayered, is what lets it actually override driver's `.driver-active *` reset.
+ */
+.driver-active .ev-tour-toggle {
+  pointer-events: auto;
 }
 
 /*
@@ -197,6 +292,9 @@
        alongside the inner scroll container and the modal showed two. The inner element is
        the one that must scroll, because the sticky footer positions against it. */
     overflow: hidden;
+    box-shadow:
+      0 24px 60px -20px rgb(15 23 42 / 0.35),
+      0 4px 16px -6px rgb(15 23 42 / 0.18);
   }
 
   dialog.ev-dialog::backdrop {
@@ -221,6 +319,22 @@
   @keyframes ev-backdrop-in {
     from {
       opacity: 0;
+    }
+  }
+}
+
+/* Each second of the self-timer countdown pops in and settles — one cue that a new number
+   has arrived, distinct from the number just sitting there. React keys the digit by its
+   own value so this replays every second rather than only once. */
+@layer components {
+  @keyframes ev-countdown-pop {
+    from {
+      opacity: 0;
+      transform: scale(1.35);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
     }
   }
 }

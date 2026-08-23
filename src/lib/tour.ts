@@ -2,15 +2,36 @@
  * The guided walkthrough.
  *
  * Steps are grouped by screen rather than defined as one flat list, because the tour has
- * to survive the app changing screens underneath it. When the step changes, the runner
- * tears down the previous popover set and starts the next one, so the tour narrates the
- * real application rather than a mock of it.
+ * to survive the app changing screens underneath it. When one section runs out of steps,
+ * `useTour` hands control back to the app (see `App.tsx`'s `advanceDemo`), which drives
+ * the real state machine one step further — captures a sample file, fills in a jurisdiction,
+ * unlocks the vault with the published demo PIN, and so on. That state change is what
+ * actually moves the tour to the next section; the tour itself only ever narrates whatever
+ * screen is really on screen, never a mock of it.
  *
  * Every step is skippable and skipping is a first-class action, not a greyed-out "no
  * thanks". Someone who opened this app in a bad moment should not have to sit through a
  * product tour to document what happened to them.
  */
 import type { Step } from './types';
+
+/**
+ * How long each step dwells before autoplay moves on. Shared with `App.tsx`, which uses
+ * the same number to hold the 'process' section open for at least this long — real
+ * fingerprinting and timestamping usually finish in a couple of seconds, far faster than
+ * this, and letting the screen change the moment they do cuts that step short for anyone
+ * watching the tour rather than driving it by hand.
+ */
+export const AUTOPLAY_MS = 25_000;
+
+/**
+ * Every screen the tour can narrate. `Step` covers the main capture-to-export flow; the
+ * vault is reached separately (via the header button, not the step machine). It gets four
+ * sections rather than one, because "locked", "unlocked but empty", "unlocked with
+ * records", and "one open record" are each a different set of elements on screen — the
+ * same reason the main flow is split by `Step` instead of being one long section.
+ */
+export type TourSection = Step | 'vault-locked' | 'vault-empty' | 'vault-list' | 'vault-record';
 
 export interface TourStep {
   /**
@@ -27,22 +48,16 @@ export interface TourStep {
   description: string;
 }
 
-export const TOUR_STEPS: Record<Step, TourStep[]> = {
+export const TOUR_STEPS: Record<TourSection, TourStep[]> = {
   capture: [
     {
-      anchor: '[data-tour="capture-video"]',
-      title: 'Record what is happening',
+      anchor: '[data-tour="capture-live"]',
+      title: 'One camera, photo or video',
       description:
-        'For anything spoken: abuse in the street, a confrontation, someone shouting at a person ' +
-        'in a shop. It records sound as well as picture, because the words are usually what ' +
-        'matters. The file is fingerprinted the moment you stop.',
-    },
-    {
-      anchor: '[data-tour="capture-photo"]',
-      title: 'Or photograph it',
-      description:
-        'For a screen, a poster, or graffiti. Taking it through the app is the stronger record. ' +
-        'The image is fingerprinted before it becomes a file that anyone could edit.',
+        'Open it once and switch between the two — a photo for a screen, a poster, or graffiti; ' +
+        'video with sound for anything spoken, like a confrontation or abuse shouted at someone. ' +
+        'You can add more than one to a single report, and each is fingerprinted the instant you ' +
+        'capture it.',
     },
     {
       anchor: '[data-tour="capture-upload"]',
@@ -52,16 +67,15 @@ export const TOUR_STEPS: Record<Step, TourStep[]> = {
         'the app saw it, so nobody is misled about what the proof covers.',
     },
   ],
-  process: [
-    {
-      anchor: '[data-tour="securing"]',
-      title: 'Fingerprinting',
-      description:
-        'Your file gets a SHA-256 fingerprint, a short code worked out from its exact contents. ' +
-        'Change one pixel and the code changes completely. That is what makes tampering visible.',
-    },
-  ],
   review: [
+    {
+      anchor: '[data-tour="item-status"]',
+      title: 'Fingerprinted the instant you captured it',
+      description:
+        'No separate loading screen — your file gets a SHA-256 fingerprint and a timestamp ' +
+        'request in the background the moment the shutter fires. Change one pixel later and the ' +
+        'fingerprint changes completely, which is what makes tampering visible.',
+    },
     {
       anchor: '[data-tour="evidence-preview"]',
       title: 'Blurred on purpose',
@@ -118,33 +132,96 @@ export const TOUR_STEPS: Record<Step, TourStep[]> = {
         'unedited. That pairing is what anyone can verify later, without needing this app at all.',
     },
   ],
+  'vault-locked': [
+    {
+      anchor: '[data-tour="vault-unlock"]',
+      title: 'Locked with a PIN',
+      description:
+        'Records you choose to keep live here, encrypted at rest with a key derived from this ' +
+        'PIN. Locking the vault drops that key from memory, so what sits in browser storage is ' +
+        'ciphertext, not your files.',
+    },
+  ],
+  'vault-empty': [
+    {
+      anchor: '[data-tour="vault-demo"]',
+      title: 'Nothing real to show you',
+      description:
+        'This hackathon build cannot be tested against real hateful content, so the vault starts ' +
+        'empty. Load three synthetic demo records to see how a saved record actually behaves.',
+    },
+  ],
+  'vault-list': [
+    {
+      anchor: '[data-tour="vault-entries"]',
+      title: 'Every record you have kept',
+      description:
+        'One card per record, with its timestamp status at a glance — pending, confirmed, or a ' +
+        'demo that was never sent anywhere real. Tap one to open it.',
+    },
+  ],
+  'vault-record': [
+    {
+      anchor: '[data-tour="vault-preview"]',
+      title: 'Still blurred in here',
+      description:
+        'Saving something to the vault does not change how it is shown. It stays blurred until ' +
+        'you choose to look, same as the moment you first captured it.',
+    },
+    {
+      anchor: '[data-tour="vault-verify"]',
+      title: 'Check the timestamp later',
+      description:
+        'Calendars can take time to confirm on the ledger. Come back here whenever you like and ' +
+        'check again — it works independently of this app, with the same tooling anyone else ' +
+        'would use.',
+    },
+    {
+      anchor: '[data-tour="downloads"]',
+      title: 'Download it again',
+      description:
+        'Regenerated fresh from what is saved here, as many times as you need — once for the ' +
+        'platform, again for a lawyer, again for the police — without repeating capture.',
+    },
+    {
+      anchor: '[data-tour="vault-remove"]',
+      title: 'Remove it, if you need to',
+      description:
+        'This only deletes the copy on this device. It does not unsend anything you already ' +
+        'shared, and it cannot be undone.',
+    },
+  ],
 };
 
-export const TOUR_STORAGE_KEY = 'evidence-vault:tour-seen';
+const INTRO_HIDDEN_KEY = 'evidence-vault:intro-hidden';
 
 /**
- * Whether to offer the tour automatically.
+ * Whether the welcome sequence (intro slideshow, then the tour offer) should stay off.
  *
- * This reads and writes exactly one boolean in localStorage and nothing else. It records
- * that a tour was shown — never what was captured, reported, or written. Wrapped in
- * try/catch because storage throws outright in some private-browsing modes, and a
- * disabled storage API should cost the user a repeated tour, not a broken app.
+ * The default is to show it every session — someone documenting something is unlikely to
+ * remember a dialog from a previous visit, and the stakes of not knowing what this tool
+ * does are higher than the mild friction of seeing the intro again. The only way this ever
+ * returns true is the explicit "Don't show this again" checkbox in the intro dialog; there
+ * is no implicit "seen once" tracking. Wrapped in try/catch because storage throws outright
+ * in some private-browsing modes, and a disabled storage API should cost the user a
+ * repeated dialog, not a broken app.
  */
-export function hasSeenTour(): boolean {
+export function isIntroHidden(): boolean {
   try {
-    return localStorage.getItem(TOUR_STORAGE_KEY) === '1';
+    return localStorage.getItem(INTRO_HIDDEN_KEY) === '1';
   } catch {
     return false;
   }
 }
 
-/** True when the walkthrough has never been offered on this device. */
-export const tourNotYetSeen = (): boolean => !hasSeenTour();
-
-export function markTourSeen(): void {
+export function setIntroHidden(hidden: boolean): void {
   try {
-    localStorage.setItem(TOUR_STORAGE_KEY, '1');
+    if (hidden) {
+      localStorage.setItem(INTRO_HIDDEN_KEY, '1');
+    } else {
+      localStorage.removeItem(INTRO_HIDDEN_KEY);
+    }
   } catch {
-    /* storage unavailable — the tour simply offers itself again next time */
+    /* storage unavailable — the intro simply shows again next time, which is the default anyway */
   }
 }

@@ -26,6 +26,13 @@ interface Props {
    */
   actions: ReactNode;
   labelId?: string;
+  /**
+   * Whether clicking the backdrop closes the dialog. Defaults to true. The intro
+   * slideshow turns this off: a stray click while reading a slide shouldn't cost someone
+   * the rest of the walkthrough. Escape and the dialog's own buttons still always work,
+   * so this never makes the dialog untrappable — just harder to dismiss by accident.
+   */
+  dismissOnBackdropClick?: boolean;
 }
 
 export default function Modal({
@@ -36,6 +43,7 @@ export default function Modal({
   children,
   actions,
   labelId = 'modal-title',
+  dismissOnBackdropClick = true,
 }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
 
@@ -75,7 +83,7 @@ export default function Modal({
     // The backdrop is part of the dialog's own box, so a click landing directly on the
     // element (rather than on its content) means the backdrop was hit.
     const handleClick = (event: MouseEvent) => {
-      if (event.target === dialog) onClose();
+      if (dismissOnBackdropClick && event.target === dialog) onClose();
     };
 
     dialog.addEventListener('cancel', handleCancel);
@@ -84,7 +92,7 @@ export default function Modal({
       dialog.removeEventListener('cancel', handleCancel);
       dialog.removeEventListener('click', handleClick);
     };
-  }, [onClose]);
+  }, [onClose, dismissOnBackdropClick]);
 
   return (
     <dialog

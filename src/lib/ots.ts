@@ -356,7 +356,7 @@ export async function stampDigest(
   };
 }
 
-function collectPendingUris(ts: Timestamp): string[] {
+export function collectPendingUris(ts: Timestamp): string[] {
   const out: string[] = [];
   const walk = (node: Timestamp): void => {
     for (const att of node.attestations) if (att.uri) out.push(att.uri);
@@ -380,4 +380,148 @@ export function parseDetachedOts(bytes: Uint8Array): { digest: Uint8Array; times
 
   const digest = r.take(32);
   return { digest, timestamp: parseTimestamp(r) };
+}
+
+// ---------------------------------------------------------------------------
+// Upgrading a pending proof — checking whether a calendar has since produced
+// a Bitcoin attestation for a digest we already hold a pending proof for.
+// ---------------------------------------------------------------------------
+
+function concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
+  const out = new Uint8Array(a.length + b.length);
+  out.set(a, 0);
+  out.set(b, a.length);
+  return out;
+}
+
+/**
+ * Recompute the message at one step of the timestamp tree.
+ *
+ * A calendar's pending attestation is rarely on the raw digest itself — pool servers
+ * batch many submissions into one Merkle tree, so the path to a pending attestation is
+ * usually a chain of `append`/`prepend` + `sha256` operations. To ask "has this been
+ * confirmed yet", we have to walk the same path the calendar built and ask about the
+ * message that results, not the original digest.
+ *
+ * SHA-1 and SHA-256 are natively available via Web Crypto. RIPEMD-160 and Keccak-256 are
+ * not, but calendar batching does not use them in practice — they exist in the format for
+ * client-side file hashing before submission, which this app never does (we submit a
+ * digest directly). A branch that hits one is skipped rather than failing the whole walk.
+ */
+async function applyOp(tag: number, arg: Uint8Array | undefined, msg: Uint8Array): Promise<Uint8Array> {
+  switch (tag) {
+    case OP_SHA256:
+      return new Uint8Array(await crypto.subtle.digest('SHA-256', msg as BufferSource));
+    case OP_SHA1:
+      return new Uint8Array(await crypto.subtle.digest('SHA-1', msg as BufferSource));
+    case OP_APPEND:
+      return concatBytes(msg, arg ?? new Uint8Array());
+    case OP_PREPEND:
+      return concatBytes(arg ?? new Uint8Array(), msg);
+    case OP_REVERSE:
+      return msg.slice().reverse();
+    case OP_HEXLIFY:
+      return new TextEncoder().encode(toHex(msg));
+    default:
+      throw new Error(`upgrade: op 0x${tag.toString(16)} is not implemented client-side`);
+  }
+}
+
+interface PendingLeaf {
+  /** The message this particular attestation is over — not necessarily the root digest. */
+  msg: Uint8Array;
+  uri: string;
+  /** The tree node holding the pending attestation, mutated in place if it upgrades. */
+  node: Timestamp;
+}
+
+async function collectPendingLeaves(ts: Timestamp, msg: Uint8Array, out: PendingLeaf[] = []): Promise<PendingLeaf[]> {
+  for (const att of ts.attestations) {
+    if (att.tag === PENDING_TAG && att.uri) out.push({ msg, uri: att.uri, node: ts });
+  }
+  for (const branch of ts.ops) {
+    try {
+      const nextMsg = await applyOp(branch.tag, branch.arg, msg);
+      await collectPendingLeaves(branch.next, nextMsg, out);
+    } catch {
+      // An unsupported op on this branch — leave it be, other branches can still upgrade.
+    }
+  }
+  return out;
+}
+
+/** Bitcoin block heights this timestamp is attested to confirm at, wherever they appear in the tree. */
+export function confirmedBlockHeights(otsBytes: Uint8Array): number[] {
+  const { timestamp } = parseDetachedOts(otsBytes);
+  const out: number[] = [];
+  const walk = (node: Timestamp): void => {
+    for (const att of node.attestations) {
+      if (att.tag === BITCOIN_TAG && att.height !== undefined) out.push(att.height);
+    }
+    for (const branch of node.ops) walk(branch.next);
+  };
+  walk(timestamp);
+  return [...new Set(out)];
+}
+
+export interface UpgradeResult {
+  /** Re-serialized proof, including any new attestations found. Save this over the old one. */
+  ots: Uint8Array;
+  /** Whether any calendar returned something new since the proof was first built. */
+  changed: boolean;
+  confirmedHeights: number[];
+  pendingUris: string[];
+  errors: string[];
+}
+
+/**
+ * Ask each calendar a pending attestation came from whether it has upgraded to a Bitcoin
+ * attestation yet.
+ *
+ * A calendar answers `404` for "still pending" — that is not a failure, just a normal
+ * outcome recorded in neither `changed` nor `errors`. Anything else unexpected (network
+ * failure, unreachable host) is collected in `errors` without aborting the other calendars.
+ */
+export async function upgradeProof(otsBytes: Uint8Array, signal?: AbortSignal): Promise<UpgradeResult> {
+  const { digest, timestamp } = parseDetachedOts(otsBytes);
+  const leaves = await collectPendingLeaves(timestamp, digest);
+  const errors: string[] = [];
+  let changed = false;
+
+  await Promise.all(
+    leaves.map(async (leaf) => {
+      try {
+        const res = await fetch(`${leaf.uri}/timestamp/${toHex(leaf.msg)}`, { signal });
+        if (res.status === 404) return; // Still pending — expected, not an error.
+        if (!res.ok) {
+          errors.push(`${leaf.uri}: HTTP ${res.status}`);
+          return;
+        }
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        const upgraded = parseTimestamp(new Reader(bytes));
+        const merged = mergeTimestamps(leaf.node, upgraded);
+        leaf.node.attestations = merged.attestations;
+        leaf.node.ops = merged.ops;
+        changed = true;
+      } catch (err) {
+        errors.push(`${leaf.uri}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }),
+  );
+
+  const w = new Writer();
+  w.raw(HEADER_MAGIC);
+  w.u8(MAJOR_VERSION);
+  w.u8(OP_SHA256);
+  w.raw(digest);
+  serializeTimestamp(w, timestamp);
+  const ots = w.finish();
+
+  return {
+    ots,
+    changed,
+    confirmedHeights: confirmedBlockHeights(ots),
+    pendingUris: collectPendingUris(timestamp),
+    errors,
+  };
 }

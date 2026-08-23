@@ -7,15 +7,15 @@ export type CaptureSource = 'live' | 'upload';
 /** Stills and recordings travel the same pipeline but differ in how they're presented. */
 export type MediaKind = 'image' | 'video';
 
-export type Step = 'capture' | 'process' | 'review' | 'handover' | 'export';
+export type Step = 'capture' | 'review' | 'handover' | 'export';
 
 /**
  * Where the person intends to take this, and who is attesting to it.
  *
- * The declarant's name and contact are the only personal data this app ever handles. They
- * are optional, never prefilled, never stored, and exist solely because a certificate of
- * authenticity is worthless without someone standing behind it. If the user declines,
- * they still get every other file.
+ * The declarant's name and contact — like the optional contact fields on `ReportDetails` —
+ * are the only personal data this app ever handles. They are optional, never prefilled,
+ * never stored, and exist solely because a certificate of authenticity is worthless without
+ * someone standing behind it. If the user declines, they still get every other file.
  */
 export interface HandoverChoice {
   countryId: string;
@@ -51,6 +51,14 @@ export interface ReportDetails {
   severity: string;
   /** Text pulled off the image by OCR, after the user has reviewed and corrected it. */
   transcript: string;
+  /**
+   * How a reviewer can reach whoever filed this record — entirely optional, and blank by
+   * default. Unlike the rest of this interface, these three carry personal data, so the UI
+   * calls that out rather than letting them blend in with the other fields.
+   */
+  contactName: string;
+  contactEmail: string;
+  contactPhone: string;
 }
 
 export interface TimestampProof {
@@ -59,6 +67,38 @@ export interface TimestampProof {
   pendingUris: string[];
   /** When we asked the calendars, per this device's clock. */
   submittedAt: string;
+}
+
+/**
+ * Technical facts about how a live capture was taken — camera and microphone in use, and
+ * any adjustment the reporter made before the shutter fired. Live capture only; an
+ * imported file carries none of this, because none of it is knowable about a file that
+ * already existed before this app saw it.
+ *
+ * This exists for the same reason `source` and `capturedAt` do: the report is stronger
+ * for stating plainly how a record was produced, rather than leaving a reviewer to assume.
+ */
+export interface CaptureMeta {
+  /** 'user' (front/selfie) or 'environment' (rear) camera, when the browser reports it. */
+  facingMode?: 'user' | 'environment';
+  /** The camera's own label, exactly as the browser reports it (e.g. "Back Camera"). */
+  cameraLabel?: string;
+  /** The microphone's own label, when the recording included audio. */
+  microphoneLabel?: string;
+  /** Whether the flashlight/torch was switched on at the moment of capture. */
+  torchOn?: boolean;
+  /** Zoom factor in use, e.g. 2 for 2x, when the camera reports a zoom capability. */
+  zoom?: number;
+  /** Manual exposure compensation in EV stops, when the camera exposes that control. */
+  exposureCompensation?: number;
+  /** Manual brightness level, when the camera exposes that instead of exposure compensation. */
+  brightness?: number;
+  /** Self-timer delay used before the shutter fired, in seconds. */
+  timerSeconds?: number;
+  /** This frame's position within a burst sequence, 1-based. */
+  burstIndex?: number;
+  /** Total number of frames captured in the same burst sequence. */
+  burstCount?: number;
 }
 
 export interface EvidenceRecord {
@@ -81,6 +121,8 @@ export interface EvidenceRecord {
   details: ReportDetails;
   proof?: TimestampProof;
   handover?: HandoverChoice;
+  /** Live capture only — see `CaptureMeta`. */
+  captureMeta?: CaptureMeta;
 }
 
 export const emptyDetails = (): ReportDetails => ({
@@ -90,4 +132,53 @@ export const emptyDetails = (): ReportDetails => ({
   category: '',
   severity: '',
   transcript: '',
+  contactName: '',
+  contactEmail: '',
+  contactPhone: '',
 });
+
+export type CaptureItemStatus = 'securing' | 'ready' | 'error';
+
+/**
+ * A capture as it exists while its package is still being assembled — from the instant
+ * the shutter fires until the user finalises the package. Fingerprinting and timestamp
+ * submission (see `secureBlob` in `lib/secure.ts`) happen in the background rather than on
+ * a blocking screen, so an item sits in the list well before it has a digest: `status`
+ * tracks that, and `record` — a complete, ordinary `EvidenceRecord` — only appears once
+ * it's done. A package is simply an array of these, with no separate container type; the
+ * package's own identity is a plain id string carried alongside the array in `App.tsx`.
+ */
+export interface CaptureItem {
+  id: string;
+  blob: Blob;
+  source: CaptureSource;
+  kind: MediaKind;
+  durationSeconds?: number;
+  hasAudio?: boolean;
+  captureMeta?: CaptureMeta;
+  status: CaptureItemStatus;
+  /** Present once `status` is 'ready'. */
+  record?: EvidenceRecord;
+  /** Present once `status` is 'error'. */
+  error?: string;
+}
+
+/**
+ * A record as it lives in the vault: the evidence itself plus vault-only metadata that
+ * has no place on `EvidenceRecord`, because it describes the record's life in storage
+ * rather than the incident it documents.
+ */
+export interface VaultRecord {
+  record: EvidenceRecord;
+  /** ISO 8601, when this was saved to the vault — distinct from `capturedAt`. */
+  savedAt: string;
+  /**
+   * True for the synthetic entries the vault can seed itself with. Hackathon rule §06
+   * bars testing against real hateful content, and this app was built with no other
+   * evidence to populate a vault with. Demo entries are marked everywhere they're shown
+   * and never touch the real OpenTimestamps calendars.
+   */
+  isDemo: boolean;
+  /** Demo-only: a fabricated Bitcoin block height, to show what a confirmed record looks like. */
+  demoConfirmedHeight?: number;
+}

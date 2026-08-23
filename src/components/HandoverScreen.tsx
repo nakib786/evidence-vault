@@ -14,19 +14,20 @@ import { IMMEDIATE_DANGER } from '../lib/taxonomy';
 import type { EvidenceRecord, HandoverChoice } from '../lib/types';
 
 interface Props {
-  record: EvidenceRecord;
+  items: EvidenceRecord[];
   choice: HandoverChoice;
   onChange: (choice: HandoverChoice) => void;
   onContinue: () => void;
   onBack: () => void;
 }
 
-export default function HandoverScreen({ record, choice, onChange, onContinue, onBack }: Props) {
+export default function HandoverScreen({ items, choice, onChange, onContinue, onBack }: Props) {
   const ids = useId();
   const id = (n: string) => `${ids}-${n}`;
 
   const country = choice.countryId ? findCountry(choice.countryId) : undefined;
   const region = country && choice.regionId ? findRegion(country, choice.regionId) : undefined;
+  const anyImmediateDanger = items.some((r) => r.details.severity === IMMEDIATE_DANGER);
 
   const set = <K extends keyof HandoverChoice>(key: K, value: HandoverChoice[K]): void =>
     onChange({ ...choice, [key]: value });
@@ -47,7 +48,7 @@ export default function HandoverScreen({ record, choice, onChange, onContinue, o
         </p>
       </div>
 
-      {record.details.severity === IMMEDIATE_DANGER ? (
+      {anyImmediateDanger ? (
         <Callout tone="danger" title="If someone is in danger right now, call emergency services first">
           Dial <strong>911</strong>. This app does not contact anyone on your behalf, and nobody is
           alerted that you made this record.
@@ -150,8 +151,11 @@ export default function HandoverScreen({ record, choice, onChange, onContinue, o
           <div>
             <h2 className="font-display text-lg font-bold text-ink">Certificate of authenticity</h2>
             <p className="mt-1 text-sm text-ink-muted">
-              A signed statement that the file is unaltered and the fingerprint is what it says it
-              is. Written to the structure of <strong>{country.evidenceLaw.citation}</strong>, so a
+              {items.length > 1
+                ? `A signed statement, one per item (${items.length} in this package), that each ` +
+                  'file is unaltered and its fingerprint is what it says it is.'
+                : 'A signed statement that the file is unaltered and the fingerprint is what it says it is.'}{' '}
+              Written to the structure of <strong>{country.evidenceLaw.citation}</strong>, so a
               lawyer can adopt it rather than start from scratch.
             </p>
             <p className="mt-2 text-sm text-ink-muted">{country.evidenceLaw.summary}</p>
@@ -166,10 +170,14 @@ export default function HandoverScreen({ record, choice, onChange, onContinue, o
             />
             <span>
               <span className="block font-display text-sm font-semibold text-ink">
-                Include a certificate with my export
+                {items.length > 1
+                  ? 'Include a certificate for each item with my export'
+                  : 'Include a certificate with my export'}
               </span>
               <span className="mt-1 block text-sm text-ink-muted">
-                You print it, sign it by hand, and keep it with the other files.
+                {items.length > 1
+                  ? 'You print each one, sign it by hand, and keep it with that item’s other files.'
+                  : 'You print it, sign it by hand, and keep it with the other files.'}
               </span>
             </span>
           </label>

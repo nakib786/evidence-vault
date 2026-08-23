@@ -22,7 +22,7 @@ Evidence Vault produces a **tamper-evident, independently verifiable record** of
 2. **Secure** — the file is fingerprinted with SHA-256 and the fingerprint is submitted to public [OpenTimestamps](https://opentimestamps.org) calendar servers, which register it on a public blockchain ledger. No cryptocurrency is bought, sold or held; the ledger is used only as a public record nobody can alter after the fact.
 3. **Review** — add context in your own words. Optionally pull the text off an image with on-device OCR, in English, Arabic or Urdu.
 4. **Send** — pick your jurisdiction and see who actually takes these reports near you, and through which channel. Optionally generate a **certificate of authenticity** written to your jurisdiction's evidence rules.
-5. **Export** — a PDF report, the original file, a `.ots` proof, a cover letter, and the certificate — all saved locally.
+5. **Export** — a PDF report, the original file, a `.ots` proof, a cover letter, and the certificate — all saved locally. From here you can also, optionally, **keep an encrypted copy in the vault** on this device — see below.
 
 Video matters here more than stills. Street harassment, a confrontation, abuse shouted at someone — none of that is a screenshot, and the words are usually the evidence. Recordings carry audio by default, are hashed the moment recording stops, and appear in the report as a timecoded contact sheet, because a PDF cannot play a video.
 
@@ -34,9 +34,17 @@ The result proves two things to anyone you hand it to: **this exact file existed
 
 The single exception is a 32-byte SHA-256 digest sent to public timestamp calendars. A digest is a one-way fingerprint: it cannot be turned back into the image, and it reveals nothing about what the image contains. The calendars learn that *a* file existed. They cannot learn *which* file, what it showed, or who you are.
 
-There is no account, no database, no analytics, and no server-side storage of any kind. Closing the tab is a complete and irreversible delete. That is a structural property of the architecture, not a promise in a privacy policy.
+There is no account, no database, no analytics, and no server-side storage of any kind — that stays true everywhere in the app, always. There is no API this app talks to except the timestamp calendars.
 
-For completeness, the app writes exactly one thing to your browser's storage: a single boolean recording that the walkthrough has been shown, so it does not reappear every visit. It records that a tour was shown — never what you captured, wrote, or reported.
+The export screen **keeps a copy in a vault by default**, so a record can be revisited later, its timestamp re-checked once confirmed, and its files re-downloaded as many times as it needs to go out — to a platform, then a community organisation, then a lawyer, then police — without repeating capture. That save can be undone with one tap, right there on the export screen ("Don't keep this copy"), and takes effect immediately, including cancelling a save still in progress. Skip that and closing the tab is a complete, irreversible delete — nothing lingers unless it was actively kept. The vault:
+
+- Lives entirely in this browser's local storage (IndexedDB) — never a server, never synced anywhere.
+- Is encrypted at rest with AES-256-GCM, keyed by PBKDF2 from a PIN, so the raw browser storage holds ciphertext rather than your files.
+- Is gated by a **demo PIN** for this hackathon build, printed on the lock screen and explained as exactly that — see [Safety and limits](#safety-and-limits).
+- Supports a **duress PIN** — entering it on the lock screen instead of the real PIN opens a decoy vault of demo-only content, for anyone ever compelled to unlock it. Set to a published demo value (`9999`) automatically on first use, shown on the lock screen alongside the main PIN so judges can find it; change or remove it from inside the unlocked vault. The real key is never derived and real entries are never read during a duress unlock — see [docs/SECURITY.md](docs/SECURITY.md) for exactly what that guarantees and what it doesn't.
+- Auto-locks after a few minutes idle, and locks instantly on the Escape key.
+
+For completeness, beyond the vault (which is undoable with one tap and visibly labelled everywhere it appears), the app writes exactly one other thing to your browser's storage: a single boolean recording that the walkthrough has been shown, so it does not reappear every visit. It records that a tour was shown — never what you captured, wrote, or reported.
 
 ### Why there is no AI classifier
 
@@ -74,6 +82,23 @@ The app generates a certificate drafted to that structure, which you print and s
 
 Courts get an honest answer too — they do not accept evidence from the public, so the app says so and explains what to do instead.
 
+### The vault
+
+The app is called Evidence Vault, and until now nothing in it actually stayed anywhere — closing the tab deleted the record, structurally, with no way back. That's a defensible default, but it left the name over-promising: there was no vault to revisit.
+
+The export screen now offers to keep an encrypted copy, on this device only. Opening it later shows:
+
+- The record, exactly as captured, with the same blur-until-revealed treatment as the main flow.
+- Its timestamp status — pending, or confirmed with the Bitcoin block height — with a button to re-check a pending proof against the calendars.
+- Every export file, regenerated on demand, so the same package can go out to a platform, a community organisation, a lawyer and the police in turn, without repeating the capture flow each time.
+- A remove action, scoped to this device only.
+
+It's locked with a **PIN**, demo-labelled as such: `1234` is shown on the lock screen itself, described plainly as *not real security* — anyone who reads the code or the screen has it. What is real underneath: the vault is encrypted at rest with a key derived from that PIN via PBKDF2, using AES-256-GCM, so the mechanism the lock screen demonstrates is genuine, even though the specific PIN it ships with is public by design. A shipped, non-hackathon version would have the person set their own PIN privately, the first time, rather than publishing a default.
+
+Because rule §06 rules out testing this against anything real, the vault can seed itself with three synthetic entries built from the same `fixtures/` images the rest of the app uses for demos — one with no timestamp, one pending, one shown as confirmed with a fabricated block height. Every synthetic entry is labelled **Demo** everywhere it appears, was never submitted to a real calendar, and is excluded from the live re-check (which only ever runs against a real, user-saved record's real proof).
+
+That live re-check has a real limitation worth stating outright: OpenTimestamps calendars serve their submission endpoint (`POST /digest`) with the CORS headers a browser needs, but not all of them do the same for the endpoint an upgrade check reads from (`GET /timestamp/…`). When a calendar doesn't, the browser blocks the response and the app says so plainly rather than implying a retry will help — and points at the standalone `ots` CLI or opentimestamps.org, neither of which are affected, since they aren't browsers.
+
 ## Try it
 
 Open **https://evidence-vault-8o6.pages.dev** — no account, no sign-up. Or run it locally:
@@ -97,6 +122,7 @@ pip install opentimestamps-client && ots verify evidence-xxxx.png.ots
 | Frontend | React 19 + Vite 8 + Tailwind 4 | TypeScript throughout |
 | Hashing | Web Crypto (`crypto.subtle`) | No dependency |
 | Timestamping | **Hand-rolled OpenTimestamps client** — [`src/lib/ots.ts`](src/lib/ots.ts) | ~330 lines, zero dependencies. See below. |
+| Vault storage | IndexedDB, hand-rolled wrapper — [`src/lib/vaultStore.ts`](src/lib/vaultStore.ts) | Entries encrypted with AES-256-GCM before they're written; key derived from a PIN via PBKDF2 — [`src/lib/vaultCrypto.ts`](src/lib/vaultCrypto.ts) |
 | OCR | tesseract.js 7, self-hosted WASM + language data | English, Arabic, Urdu |
 | Video | `MediaRecorder` + `canvas` frame extraction | Codec negotiated per browser; contact sheet for the report |
 | PDF | jsPDF | Lazy-loaded; only the export screen pays for it |
@@ -110,15 +136,17 @@ The `opentimestamps` npm package was last published in **January 2021**, is **LG
 
 Since the wire format is small and well specified, [`src/lib/ots.ts`](src/lib/ots.ts) implements it directly: varint/varbyte codecs, the timestamp tree parser and serialiser, multi-calendar merging, and the detached `.ots` file format. It is MIT-clean and adds nothing to the dependency tree.
 
-Two findings from building it that are not in any documentation we could find:
+Three findings from building it that are not in any documentation we could find:
 
 - The calendars answer `OPTIONS` with **404**, so a browser request must stay CORS-*simple*. Sending the digest with `Content-Type: application/octet-stream` triggers a preflight and fails; sending it as a bare `Uint8Array` body with no `Content-Type` works.
 - Four calendars are queried in parallel and their proofs are **merged into a single `.ots`**, so a proof does not depend on any one calendar operator staying online.
+- The endpoint an *upgrade* check reads from (`GET /timestamp/…`, used by the vault's "check for confirmation") does not consistently send CORS headers, unlike `/digest`. A plain script or the reference `ots` CLI reads it fine; a browser silently can't. There's no client-side fix for a response header a server doesn't send — see [the vault](#the-vault) above for how the app handles that honestly instead of hiding it.
 
-Correctness is not taken on trust. [`scripts/ots_validate.py`](scripts/ots_validate.py) parses our output with the **reference Python implementation**, and [`scripts/ots-verify-roundtrip.mjs`](scripts/ots-verify-roundtrip.mjs) exercises the full multi-calendar path:
+Correctness is not taken on trust. [`scripts/ots_validate.py`](scripts/ots_validate.py) parses our output with the **reference Python implementation**, [`scripts/ots-verify-roundtrip.mjs`](scripts/ots-verify-roundtrip.mjs) exercises the full multi-calendar submission path, and [`scripts/ots-upgrade-check.mjs`](scripts/ots-upgrade-check.mjs) checks the upgrade path against both a known-confirmed proof and the live calendars:
 
 ```bash
 npm run test:ots && python scripts/ots_validate.py .tmp/multi.bin.ots
+npm run test:ots-upgrade
 ```
 
 ## Design
@@ -134,7 +162,7 @@ Accessibility targets WCAG 2.2 AA: full keyboard operation, visible focus, seman
 
 ## Safety and limits
 
-**No real hateful content was created, collected or used anywhere in this project.** The demo fixtures are synthetic: they reproduce the *layout* of a social media post, while the body text is an explicit placeholder that names the category it stands in for rather than enacting it. They are generated from source by [`scripts/make-fixtures.mjs`](scripts/make-fixtures.mjs).
+**No real hateful content was created, collected or used anywhere in this project.** The demo fixtures are synthetic: they reproduce the *layout* of a social media post, while the body text is an explicit placeholder that names the category it stands in for rather than enacting it. They are generated from source by [`scripts/make-fixtures.mjs`](scripts/make-fixtures.mjs). The vault's own demo entries reuse these same synthetic fixtures — see [the vault](#the-vault) — and are labelled **Demo** everywhere they're shown, so nothing in it can be mistaken for a real submission.
 
 What a record here **does** establish:
 - This exact file existed no later than the confirmed timestamp.
