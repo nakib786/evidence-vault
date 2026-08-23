@@ -17,8 +17,11 @@ import VaultRecordScreen from './components/VaultRecordScreen';
 import VerifyScreen from './components/VerifyScreen';
 import { Button, StepIndicator } from './components/ui';
 import Modal from './components/Modal';
+import InstallNudge from './components/InstallNudge';
+import LiveChatBubble from './components/LiveChatBubble';
 import { useTour } from './components/useTour';
 import { useVault } from './components/useVault';
+import { useMyIp } from './components/useMyIp';
 import { IntroModal, TourModal } from './components/WelcomeModals';
 import { FaqModal } from './components/FaqModal';
 import { isIntroHidden, setIntroHidden, type TourSection } from './lib/tour';
@@ -300,6 +303,7 @@ export default function App() {
   }, [dontShowAgain]);
 
   const stepIndex = STEPS.findIndex((s) => s.id === step);
+  const myIp = useMyIp();
 
   return (
     <div className="min-h-dvh app-texture">
@@ -385,6 +389,8 @@ export default function App() {
             </p>
           </div>
         </header>
+
+        <InstallNudge suppressed={welcome !== null || tour.active} />
 
         {view === 'flow' ? (
           <div className="mb-8">
@@ -539,8 +545,20 @@ export default function App() {
               </li>
             </ul>
           </div>
+          <div className="mt-4 border-t border-line pt-3">
+            <p>
+              Your IP address for this visit:{' '}
+              <span className="font-mono text-ink-muted">
+                {myIp.loading ? 'looking up…' : (myIp.ip ?? 'unavailable')}
+              </span>
+              . We don&apos;t track or save it — it&apos;s read from this one request and never logged
+              or stored anywhere.
+            </p>
+          </div>
         </footer>
       </div>
+
+      <LiveChatBubble suppressed={welcome !== null || tour.active || confirmHomeOpen || faqOpen} />
     </div>
   );
 }

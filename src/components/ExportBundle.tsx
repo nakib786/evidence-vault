@@ -4,9 +4,10 @@
  * from the vault, where a saved record can be re-downloaded as many times as needed —
  * once for the platform, again for a lawyer, again for police, without redoing the flow.
  *
- * Files are offered separately rather than as one archive because the pairing matters:
- * the proof only verifies against the *original* file, and saying so plainly is more
- * useful than hiding it inside a zip.
+ * Files are still offered individually because the pairing matters — the proof only
+ * verifies against the *original* file, and saying so plainly per-file is more useful
+ * than hiding it inside an archive — but everything can also be saved as one zip, built
+ * on-device from the same pieces, for whoever wants a single attachment instead.
  */
 import { useEffect, useState } from 'react';
 import { Callout, Card, DownloadRow } from './ui';
@@ -15,6 +16,7 @@ import { extensionForMime } from '../lib/media';
 import { buildCertificatePdf } from '../lib/certificate';
 import { buildCoverLetter } from '../lib/coverletter';
 import { download } from '../lib/download';
+import { buildZip, type ZipEntry } from '../lib/zip';
 import type { EvidenceRecord } from '../lib/types';
 
 export default function ExportBundle({ record }: { record: EvidenceRecord }) {
@@ -22,6 +24,7 @@ export default function ExportBundle({ record }: { record: EvidenceRecord }) {
   const [certificate, setCertificate] = useState<Blob | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<Set<string>>(new Set());
+  const [zipBusy, setZipBusy] = useState(false);
 
   const stem = `evidence-${record.id}`;
   const isVideoRecord = record.kind === 'video';
@@ -66,11 +69,57 @@ export default function ExportBundle({ record }: { record: EvidenceRecord }) {
 
   const mark = (key: string) => setSaved((prev) => new Set(prev).add(key));
 
+  const zipReady = !!pdf && (!record.handover?.includeCertificate || !!certificate);
+
+  const handleDownloadZip = async (): Promise<void> => {
+    if (!pdf) return;
+    setZipBusy(true);
+    setError(null);
+    try {
+      const entries: ZipEntry[] = [
+        { name: `${stem}.pdf`, data: pdf },
+        { name: imageName, data: record.blob },
+      ];
+      if (record.proof) {
+        entries.push({ name: `${imageName}.ots`, data: record.proof.ots });
+      }
+      if (record.handover?.includeCertificate && certificate) {
+        entries.push({ name: `${stem}-certificate.pdf`, data: certificate });
+      }
+      if (record.handover?.countryId) {
+        entries.push({
+          name: `${stem}-cover-letter.txt`,
+          data: buildCoverLetter(record, { stem, evidenceFilename: imageName }),
+        });
+      }
+      if (hasNonLatinTranscript) {
+        entries.push({ name: `${stem}-transcript.txt`, data: record.details.transcript });
+      }
+      const blob = await buildZip(entries);
+      download(blob, `${stem}.zip`);
+      mark('zip');
+    } catch {
+      setError('The zip could not be built.');
+    } finally {
+      setZipBusy(false);
+    }
+  };
+
   return (
     <>
       {error ? <Callout tone="caution" title="Something went wrong">{error}</Callout> : null}
 
       <Card className="space-y-4" data-tour="downloads">
+        <DownloadRow
+          title="Everything, zipped"
+          filename={`${stem}.zip`}
+          description="The report, the original file, the proof, and anything else below, bundled into one .zip — already paired together, nothing to keep track of separately."
+          disabled={!zipReady}
+          done={saved.has('zip')}
+          busyLabel={zipBusy ? 'Zipping…' : zipReady ? undefined : 'Preparing…'}
+          onDownload={() => void handleDownloadZip()}
+        />
+
         <DownloadRow
           title="Evidence report"
           filename={`${stem}.pdf`}
@@ -175,7 +224,8 @@ export default function ExportBundle({ record }: { record: EvidenceRecord }) {
 
       <Callout tone="info" title="Keep the image and the proof file together">
         The proof verifies one specific file. If they are separated, or the image is edited, the
-        proof can no longer be checked. Storing both in the same folder is enough.
+        proof can no longer be checked. The zip above already keeps them together; if downloading
+        files individually instead, storing both in the same folder is enough.
       </Callout>
     </>
   );
