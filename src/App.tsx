@@ -68,6 +68,10 @@ export default function App() {
     setStep('capture');
   }, []);
 
+  // Adding an item never navigates anywhere by itself — the whole point is that photos and
+  // videos can be taken back-to-back, fingerprinted in the background as they land, while
+  // the user stays on the capture screen. Moving on to fill in the report is a separate,
+  // explicit action; see `goToReview` below.
   const handleCaptured = useCallback((payload: CapturePayload) => {
     const id = makeId();
     setItems((prev) => [
@@ -83,7 +87,6 @@ export default function App() {
         status: 'securing',
       },
     ]);
-    setStep('review');
 
     void (async () => {
       try {
@@ -117,6 +120,12 @@ export default function App() {
         );
       }
     })();
+  }, []);
+
+  // The explicit "done capturing, review it" action — called once, after however many items
+  // were taken in this batch, rather than automatically after each one.
+  const goToReview = useCallback(() => {
+    setStep('review');
   }, []);
 
   const handleRemoveItem = useCallback((id: string) => {
@@ -181,6 +190,9 @@ export default function App() {
           try {
             const payload = await buildDemoCapture();
             handleCaptured(payload);
+            // Capturing no longer navigates by itself (see `handleCaptured`), so the demo
+            // takes the same explicit "done capturing" step a real user would.
+            goToReview();
           } catch {
             // No sample file to fall back on — stop cleanly rather than leaving the tour
             // stuck on a step that will never move.
@@ -448,7 +460,9 @@ export default function App() {
             )
           ) : (
             <>
-              {step === 'capture' ? <CaptureScreen onCaptured={handleCaptured} /> : null}
+              {step === 'capture' ? (
+                <CaptureScreen items={items} onCaptured={handleCaptured} onDone={goToReview} />
+              ) : null}
 
               {step === 'review' && items.length > 0 ? (
                 <ReviewScreen

@@ -13,9 +13,9 @@
  * Neither camera nor microphone is touched until the user picks a live mode. The browser
  * permission prompt should never appear as a surprise on a screen about hate speech.
  */
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button, Callout, Card, Field, inputClass } from './ui';
-import type { CaptureMeta, CaptureSource, MediaKind } from '../lib/types';
+import type { CaptureItem, CaptureMeta, CaptureSource, MediaKind } from '../lib/types';
 import {
   ACCEPTED_IMAGE_TYPES,
   ACCEPTED_VIDEO_TYPES,
@@ -71,12 +71,16 @@ export interface CapturePayload {
 }
 
 interface Props {
+  /** Everything captured so far this session — see the file-level comment on batching. */
+  items: CaptureItem[];
   onCaptured: (payload: CapturePayload) => void;
+  /** Leaves the capture screen for good and moves on to filling in the report. */
+  onDone: () => void;
 }
 
 type Mode = 'choose' | 'live';
 
-export default function CaptureScreen({ onCaptured }: Props) {
+export default function CaptureScreen({ items, onCaptured, onDone }: Props) {
   const [mode, setMode] = useState<Mode>('choose');
   const [error, setError] = useState<string | null>(null);
 
@@ -102,28 +106,40 @@ export default function CaptureScreen({ onCaptured }: Props) {
 
       {mode === 'choose' ? (
         <ChooseMode
+          items={items}
           onPick={() => {
             setError(null);
             setMode('live');
           }}
           onFile={onCaptured}
           onError={setError}
+          onDone={onDone}
         />
       ) : (
-        <LiveCapture onCaptured={onCaptured} onCancel={() => setMode('choose')} onError={fail} />
+        <LiveCapture
+          items={items}
+          onCaptured={onCaptured}
+          onCancel={() => setMode('choose')}
+          onError={fail}
+          onDone={onDone}
+        />
       )}
     </div>
   );
 }
 
 function ChooseMode({
+  items,
   onPick,
   onFile,
   onError,
+  onDone,
 }: {
+  items: CaptureItem[];
   onPick: () => void;
   onFile: (payload: CapturePayload) => void;
   onError: (message: string) => void;
+  onDone: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const accepted = [...ACCEPTED_IMAGE_TYPES, ...ACCEPTED_VIDEO_TYPES];
@@ -163,20 +179,44 @@ function ChooseMode({
 
   return (
     <div className="space-y-4">
+      {items.length > 0 ? (
+        <Card className="space-y-3" data-tour="capture-batch">
+          <div className="flex items-start gap-3">
+            <BatchIcon />
+            <div className="flex-1">
+              <h2 className="font-display text-lg font-bold text-ink">
+                {items.length} item{items.length === 1 ? '' : 's'} captured this session
+              </h2>
+              <p className="mt-1 text-sm text-ink-muted">
+                Each is fingerprinted in the background as it comes in. Keep going below, or finish up
+                and fill in the report.
+              </p>
+            </div>
+          </div>
+          <BatchStrip items={items} />
+          <Button block onClick={onDone}>
+            Review &amp; fill out report
+          </Button>
+        </Card>
+      ) : null}
+
       <Card className="space-y-3" data-tour="capture-live">
         <div className="flex items-start gap-3">
           <CameraIcon />
           <div className="flex-1">
-            <h2 className="font-display text-lg font-bold text-ink">Take a photo or record video</h2>
+            <h2 className="font-display text-lg font-bold text-ink">
+              {items.length > 0 ? 'Take another photo or video' : 'Take a photo or record video'}
+            </h2>
             <p className="mt-1 text-sm text-ink-muted">
               A screen, a poster or graffiti as a photo — or anything spoken, like a confrontation or
               abuse shouted at someone, as video with sound. Switch between the two once the camera is
-              open, and fingerprinted the instant you capture it.
+              open, take as many as you need one after another, and each is fingerprinted the instant
+              you capture it.
             </p>
           </div>
         </div>
         <Button block onClick={onPick}>
-          Open camera
+          {items.length > 0 ? 'Add another' : 'Open camera'}
         </Button>
         <p className="text-xs text-ink-subtle">
           Your browser will ask for camera and microphone permission first. Nothing is captured until
@@ -218,13 +258,17 @@ function ChooseMode({
 }
 
 function LiveCapture({
+  items,
   onCaptured,
   onCancel,
   onError,
+  onDone,
 }: {
+  items: CaptureItem[];
   onCaptured: (payload: CapturePayload) => void;
   onCancel: () => void;
   onError: (message: string) => void;
+  onDone: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -599,6 +643,9 @@ function LiveCapture({
     return new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
   }, []);
 
+  // Deliberately does not stop the stream: the camera stays open and ready for the next
+  // shot, so a batch of photos (or a mix of photos and videos) can be taken back-to-back
+  // without leaving this screen. See `onDone` for the explicit "finished, review it" exit.
   const capturePhoto = async (): Promise<void> => {
     if (busy) return;
     setBusy(true);
@@ -606,7 +653,6 @@ function LiveCapture({
       const blob = await captureFrameBlob();
       if (!blob) throw new Error('encode failed');
       const captureMeta = buildCaptureMeta();
-      stopStream();
       onCaptured({ blob, source: 'live', kind: 'image', captureMeta });
     } catch {
       onError('The frame could not be captured. Please try again.');
@@ -648,14 +694,18 @@ function LiveCapture({
   const chooseBurstFrame = useCallback(() => {
     if (!burstFrames || selectedBurstIndex === null || !burstMeta) return;
     const chosen = burstFrames[selectedBurstIndex];
-    stopStream();
     onCaptured({
       blob: chosen.blob,
       source: 'live',
       kind: 'image',
       captureMeta: { ...burstMeta, burstIndex: selectedBurstIndex + 1, burstCount: burstFrames.length },
     });
-  }, [burstFrames, selectedBurstIndex, burstMeta, stopStream, onCaptured]);
+    // Back to the live preview, ready for the next shot, rather than leaving this picker
+    // on screen for a batch that's already moved on.
+    setBurstFrames(null);
+    setBurstMeta(null);
+    setSelectedBurstIndex(null);
+  }, [burstFrames, selectedBurstIndex, burstMeta, onCaptured]);
 
   const startRecording = (): void => {
     const stream = streamRef.current;
@@ -674,7 +724,6 @@ function LiveCapture({
         chunksRef.current = [];
         const seconds = (Date.now() - startedAtRef.current) / 1000;
         const captureMeta = buildCaptureMeta();
-        stopStream();
         onCaptured({
           blob,
           source: 'live',
@@ -683,6 +732,9 @@ function LiveCapture({
           hasAudio,
           captureMeta,
         });
+        // Camera stays open (see `capturePhoto`'s comment) — clear the busy flag `stopRecording`
+        // set so "Start recording" is immediately available again for the next clip.
+        setBusy(false);
       };
       recorder.onerror = () => onError('Recording stopped unexpectedly. Please try again.');
 
@@ -729,6 +781,13 @@ function LiveCapture({
               {formatDuration(elapsed)}
             </span>
             <span className="sr-only">Recording in progress</span>
+          </div>
+        ) : items.length > 0 ? (
+          <div className="absolute left-3 top-3">
+            <StatusPill>
+              <CheckIcon />
+              {items.length} captured
+            </StatusPill>
           </div>
         ) : null}
 
@@ -795,6 +854,8 @@ function LiveCapture({
           </div>
         ) : null}
       </div>
+
+      {items.length > 0 && !burstFrames ? <BatchStrip items={items} /> : null}
 
       {lowLight && !burstFrames ? (
         <Callout tone="caution" title="It looks dark">
@@ -933,12 +994,98 @@ function LiveCapture({
         </>
       )}
 
+      {!recording && !burstFrames && countdown === null && items.length > 0 ? (
+        <Button
+          variant="secondary"
+          block
+          onClick={() => {
+            stopStream();
+            onDone();
+          }}
+        >
+          Done — review &amp; fill out report ({items.length})
+        </Button>
+      ) : null}
+
       {!recording && !burstFrames ? (
         <Button variant="quiet" block onClick={countdown !== null ? cancelCountdown : onCancel}>
           {countdown !== null ? 'Cancel countdown' : 'Cancel'}
         </Button>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * A row of small thumbnails for what's been captured this session — shown on both the
+ * chooser and the live camera view, so a batch of shots stays visible while more are taken.
+ * Deliberately read-only here: removing an item happens on the review screen next, where
+ * its full context (and every other item) is already on screen at once.
+ */
+function BatchStrip({ items }: { items: CaptureItem[] }) {
+  return (
+    <div
+      className="flex gap-2 overflow-x-auto pb-1"
+      role="list"
+      aria-label={`${items.length} item${items.length === 1 ? '' : 's'} captured this session`}
+    >
+      {items.map((item, i) => (
+        <BatchThumb key={item.id} item={item} index={i} />
+      ))}
+    </div>
+  );
+}
+
+function BatchThumb({ item, index }: { item: CaptureItem; index: number }) {
+  const url = useMemo(() => URL.createObjectURL(item.blob), [item.blob]);
+  useEffect(() => () => URL.revokeObjectURL(url), [url]);
+
+  const statusLabel =
+    item.status === 'securing' ? 'fingerprinting' : item.status === 'error' ? 'could not be secured' : 'ready';
+
+  return (
+    <div
+      role="listitem"
+      aria-label={`Item ${index + 1}, ${item.kind === 'video' ? 'video' : 'photo'}, ${statusLabel}`}
+      className="relative size-14 shrink-0 overflow-hidden rounded-lg border border-line bg-sunken"
+    >
+      {item.kind === 'video' ? (
+        <div className="flex size-full items-center justify-center bg-ink text-white">
+          <VideoIcon compact />
+        </div>
+      ) : (
+        <img src={url} alt="" className="size-full object-cover" />
+      )}
+      {item.status === 'securing' ? (
+        <span className="absolute inset-0 flex items-center justify-center bg-ink/45">
+          <span className="size-2 animate-pulse rounded-full bg-white" aria-hidden="true" />
+        </span>
+      ) : item.status === 'error' ? (
+        <span className="absolute inset-0 flex items-center justify-center bg-danger/60">
+          <span className="text-xs font-bold text-white">!</span>
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function BatchIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className="mt-0.5 size-6 shrink-0 text-accent"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" />
+    </svg>
   );
 }
 

@@ -13,3 +13,10 @@
 # `data:` is present in font-src because jsPDF inlines its standard font metrics as
 # data: URIs to measure text; blocking them silently degrades line wrapping in the PDF.
 # It cannot be used to exfiltrate anything — a data: URI carries no network request.
+
+/sw.js
+  Cache-Control: no-cache
+
+# The service worker script must be revalidated on every load, or the CDN's default
+# caching would delay how quickly an updated worker (and its cache-cleanup logic) reaches
+# already-installed clients.
