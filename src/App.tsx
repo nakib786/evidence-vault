@@ -14,6 +14,7 @@ import HandoverScreen from './components/HandoverScreen';
 import ExportScreen from './components/ExportScreen';
 import VaultScreen from './components/VaultScreen';
 import VaultRecordScreen from './components/VaultRecordScreen';
+import VerifyScreen from './components/VerifyScreen';
 import { Button, StepIndicator } from './components/ui';
 import Modal from './components/Modal';
 import { useTour } from './components/useTour';
@@ -143,7 +144,7 @@ export default function App() {
   }, []);
 
   const vault = useVault();
-  const [view, setView] = useState<'flow' | 'vault'>('flow');
+  const [view, setView] = useState<'flow' | 'vault' | 'verify'>('flow');
   const [vaultEntryId, setVaultEntryId] = useState<string | null>(null);
   const [confirmHomeOpen, setConfirmHomeOpen] = useState(false);
 
@@ -157,7 +158,7 @@ export default function App() {
       ? 'vault-empty'
       : 'vault-list';
   const tourSection: TourSection =
-    view === 'vault' ? (vaultEntryId ? 'vault-record' : vaultTourSection) : step;
+    view === 'verify' ? 'verify' : view === 'vault' ? (vaultEntryId ? 'vault-record' : vaultTourSection) : step;
 
   const stopRef = useRef<() => void>(() => {});
 
@@ -224,8 +225,13 @@ export default function App() {
         break;
       }
       case 'vault-record':
+        // Walk into the standalone verify page next, rather than ending the tour here.
+        setVaultEntryId(null);
+        setView('verify');
+        break;
+      case 'verify':
         // The end of the walkthrough — return to the start rather than leaving whoever's
-        // watching stranded on a demo record inside the vault.
+        // watching stranded on the verify page.
         reset();
         setView('flow');
         setVaultEntryId(null);
@@ -325,6 +331,20 @@ export default function App() {
             <button
               type="button"
               onClick={() => {
+                if (view === 'verify') {
+                  setView('flow');
+                } else {
+                  if (tour.active) tour.stop();
+                  setView('verify');
+                }
+              }}
+              className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-ink-muted underline underline-offset-2 hover:bg-sunken hover:text-ink"
+            >
+              {view === 'verify' ? 'Back to app' : 'Verify'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
                 if (tour.active) tour.stop();
                 setWelcome('intro');
               }}
@@ -404,7 +424,9 @@ export default function App() {
         </Modal>
 
         <main id="main">
-          {view === 'vault' ? (
+          {view === 'verify' ? (
+            <VerifyScreen vault={vault} onBack={() => setView('flow')} />
+          ) : view === 'vault' ? (
             vaultEntryId ? (
               (() => {
                 const entry = vault.entries.find((e) => e.record.id === vaultEntryId);
@@ -414,6 +436,10 @@ export default function App() {
                     vault={vault}
                     onBack={() => setVaultEntryId(null)}
                     onRemoved={() => setVaultEntryId(null)}
+                    onOpenVerify={() => {
+                      if (tour.active) tour.stop();
+                      setView('verify');
+                    }}
                   />
                 ) : null;
               })()

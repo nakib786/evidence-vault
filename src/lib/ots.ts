@@ -382,6 +382,33 @@ export function parseDetachedOts(bytes: Uint8Array): { digest: Uint8Array; times
   return { digest, timestamp: parseTimestamp(r) };
 }
 
+/**
+ * Fold an externally-obtained proof for the same file into an existing one, keeping every
+ * attestation either side has — e.g. importing the result of running `ots upgrade`, or a
+ * fresh download from opentimestamps.org, into a proof this app already holds. This is how
+ * a confirmation reaches a saved vault record when the live in-browser check can't complete
+ * (see `fetchCalendarStats` above): the check can still be done elsewhere, and the result
+ * brought back in here instead of being stuck outside the app.
+ *
+ * Throws if the two proofs are not for the same file.
+ */
+export function mergeProofs(existing: Uint8Array, incoming: Uint8Array): Uint8Array {
+  const a = parseDetachedOts(existing);
+  const b = parseDetachedOts(incoming);
+  if (toHex(a.digest) !== toHex(b.digest)) {
+    throw new Error('That proof is for a different file — its fingerprint does not match this record.');
+  }
+
+  const merged = mergeTimestamps(a.timestamp, b.timestamp);
+  const w = new Writer();
+  w.raw(HEADER_MAGIC);
+  w.u8(MAJOR_VERSION);
+  w.u8(OP_SHA256);
+  w.raw(a.digest);
+  serializeTimestamp(w, merged);
+  return w.finish();
+}
+
 // ---------------------------------------------------------------------------
 // Upgrading a pending proof — checking whether a calendar has since produced
 // a Bitcoin attestation for a digest we already hold a pending proof for.
@@ -474,6 +501,21 @@ export interface UpgradeResult {
   errors: string[];
 }
 
+export interface UpgradeOptions {
+  signal?: AbortSignal;
+  /**
+   * Base URL of the same-origin relay in `functions/api/ots-check.ts` (e.g. `''` for same
+   * origin, or a full origin for a different deployment) that lets a browser complete this
+   * check — the calendars' own `/timestamp/{hex}` endpoint sends no CORS headers, confirmed
+   * against every calendar this app uses, so a direct `fetch` from a browser always fails
+   * there no matter which site is asking. Omit to fetch the calendars directly instead, which
+   * is what Node has always done for this project's own scripts/tests (Node's `fetch` doesn't
+   * enforce CORS, so it's a valid oracle for response correctness there, just not for browser
+   * reachability — see `ots-upgrade-check.mjs`).
+   */
+  proxyBase?: string;
+}
+
 /**
  * Ask each calendar a pending attestation came from whether it has upgraded to a Bitcoin
  * attestation yet.
@@ -482,7 +524,8 @@ export interface UpgradeResult {
  * outcome recorded in neither `changed` nor `errors`. Anything else unexpected (network
  * failure, unreachable host) is collected in `errors` without aborting the other calendars.
  */
-export async function upgradeProof(otsBytes: Uint8Array, signal?: AbortSignal): Promise<UpgradeResult> {
+export async function upgradeProof(otsBytes: Uint8Array, opts: UpgradeOptions = {}): Promise<UpgradeResult> {
+  const { signal, proxyBase } = opts;
   const { digest, timestamp } = parseDetachedOts(otsBytes);
   const leaves = await collectPendingLeaves(timestamp, digest);
   const errors: string[] = [];
@@ -491,7 +534,11 @@ export async function upgradeProof(otsBytes: Uint8Array, signal?: AbortSignal): 
   await Promise.all(
     leaves.map(async (leaf) => {
       try {
-        const res = await fetch(`${leaf.uri}/timestamp/${toHex(leaf.msg)}`, { signal });
+        const target =
+          proxyBase !== undefined
+            ? `${proxyBase}/api/ots-check?calendar=${encodeURIComponent(leaf.uri)}&hex=${toHex(leaf.msg)}`
+            : `${leaf.uri}/timestamp/${toHex(leaf.msg)}`;
+        const res = await fetch(target, { signal });
         if (res.status === 404) return; // Still pending — expected, not an error.
         if (!res.ok) {
           errors.push(`${leaf.uri}: HTTP ${res.status}`);
@@ -524,4 +571,60 @@ export async function upgradeProof(otsBytes: Uint8Array, signal?: AbortSignal): 
     pendingUris: collectPendingUris(timestamp),
     errors,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Live calendar status — public queue/batch stats, for showing progress while a
+// proof is pending. `GET {calendar}/timestamp/{hex}` (used by upgradeProof above)
+// does not send CORS headers on the calendars we use, so a browser can never poll
+// that endpoint directly — confirmed empirically, see project memory. But a
+// calendar's own homepage *does* send `Access-Control-Allow-Origin: *` (checked
+// 2026-08-23) and publishes its live queue depth and batching cadence as plain
+// text, e.g. "Pending commitments: 202", "Average time between transactions in
+// the last week: 1.34 hours". That is real, truthful "how's it going" data we can
+// fetch straight from the browser with no proxy.
+// ---------------------------------------------------------------------------
+
+export interface CalendarStats {
+  calendar: string;
+  pendingCommitments?: number;
+  txWaitingConfirmation?: number;
+  avgHoursBetweenTx?: number;
+  error?: string;
+}
+
+function parseIntLoose(text: string): number | undefined {
+  const n = Number(text.replace(/,/g, ''));
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/**
+ * Best-effort scrape of the handful of figures a calendar server prints on its own
+ * homepage. A calendar that changes its page layout or times out just contributes
+ * an `error` entry rather than failing the others.
+ */
+export async function fetchCalendarStats(
+  calendars: readonly string[],
+  signal?: AbortSignal,
+): Promise<CalendarStats[]> {
+  return Promise.all(
+    calendars.map(async (calendar): Promise<CalendarStats> => {
+      try {
+        const res = await fetch(`${calendar}/`, { signal });
+        if (!res.ok) return { calendar, error: `HTTP ${res.status}` };
+        const html = await res.text();
+        const pending = html.match(/Pending commitments:\s*([\d,]+)/i);
+        const waiting = html.match(/Transactions waiting for confirmation:\s*([\d,]+)/i);
+        const avg = html.match(/Average time between transactions in the last week:\s*([\d.]+)\s*hours/i);
+        return {
+          calendar,
+          pendingCommitments: pending ? parseIntLoose(pending[1]) : undefined,
+          txWaitingConfirmation: waiting ? parseIntLoose(waiting[1]) : undefined,
+          avgHoursBetweenTx: avg ? Number(avg[1]) : undefined,
+        };
+      } catch (err) {
+        return { calendar, error: err instanceof Error ? err.message : String(err) };
+      }
+    }),
+  );
 }

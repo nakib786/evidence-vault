@@ -30,8 +30,12 @@ export const AUTOPLAY_MS = 25_000;
  * sections rather than one, because "locked", "unlocked but empty", "unlocked with
  * records", and "one open record" are each a different set of elements on screen — the
  * same reason the main flow is split by `Step` instead of being one long section.
+ *
+ * `'verify'` is its own section for the same reason: the standalone verify page is reached
+ * from the header too, and its elements only exist while it's the screen actually on
+ * screen. It's also where the walkthrough ends — see `App.tsx`'s `advanceDemo`.
  */
-export type TourSection = Step | 'vault-locked' | 'vault-empty' | 'vault-list' | 'vault-record';
+export type TourSection = Step | 'vault-locked' | 'vault-empty' | 'vault-list' | 'vault-record' | 'verify';
 
 export interface TourStep {
   /**
@@ -131,6 +135,13 @@ export const TOUR_STEPS: Record<TourSection, TourStep[]> = {
         'Save these somewhere you trust. Keep the original and its proof file together and ' +
         'unedited. That pairing is what anyone can verify later, without needing this app at all.',
     },
+    {
+      anchor: '[data-tour="export-vault-save"]',
+      title: 'Kept for you, by default',
+      description:
+        'A copy is also saved to your on-device vault automatically the moment you arrive here — ' +
+        'no extra click. Change your mind and removing it is one tap, no questions asked.',
+    },
   ],
   'vault-locked': [
     {
@@ -159,6 +170,14 @@ export const TOUR_STEPS: Record<TourSection, TourStep[]> = {
         'One card per record, with its timestamp status at a glance — pending, confirmed, or a ' +
         'demo that was never sent anywhere real. Tap one to open it.',
     },
+    {
+      anchor: '[data-tour="vault-duress"]',
+      title: 'A second PIN, for being forced to open it',
+      description:
+        'Set a duress PIN here and entering it on the lock screen opens a decoy vault of demo ' +
+        'records instead of what you actually saved. Your real entries stay encrypted and ' +
+        'untouched the whole time — a duress unlock never reads, decrypts, or even looks at them.',
+    },
   ],
   'vault-record': [
     {
@@ -170,11 +189,11 @@ export const TOUR_STEPS: Record<TourSection, TourStep[]> = {
     },
     {
       anchor: '[data-tour="vault-verify"]',
-      title: 'Check the timestamp later',
+      title: 'Watches the calendars for you',
       description:
-        'Calendars can take time to confirm on the ledger. Come back here whenever you like and ' +
-        'check again — it works independently of this app, with the same tooling anyone else ' +
-        'would use.',
+        'This re-checks automatically every few minutes and shows real queue and batching data ' +
+        'from the calendars while you wait, so there is nothing to click. The same check — just ' +
+        'the file and its proof, no vault needed — also runs on the verify page.',
     },
     {
       anchor: '[data-tour="downloads"]',
@@ -189,6 +208,16 @@ export const TOUR_STEPS: Record<TourSection, TourStep[]> = {
       description:
         'This only deletes the copy on this device. It does not unsend anything you already ' +
         'shared, and it cannot be undone.',
+    },
+  ],
+  verify: [
+    {
+      anchor: '[data-tour="verify-upload"]',
+      title: 'Check any file and proof, on their own',
+      description:
+        'No vault, no account — upload a file and its .ots proof and this checks them against ' +
+        'each other right here, entirely in the browser. Works for any record from this app, or ' +
+        'any standard OpenTimestamps proof from somewhere else.',
     },
   ],
 };

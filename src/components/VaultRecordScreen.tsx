@@ -3,16 +3,18 @@
  * and every file it can produce again — as many times as it needs to go out to a
  * platform, a community organisation, a lawyer and the police, without repeating capture.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Callout, Card } from './ui';
 import ExportBundle from './ExportBundle';
+import ProofLivePanel from './ProofLivePanel';
+import { useProofCheck } from './useProofCheck';
 import { formatDigestForHumans } from '../lib/hash';
 import { formatDuration } from '../lib/media';
 import { CATEGORIES, SEVERITIES, labelFor } from '../lib/taxonomy';
 import { findCountry } from '../lib/jurisdictions';
-import { upgradeProof } from '../lib/ots';
+import { mergeProofs, parseDetachedOts, collectPendingUris, confirmedBlockHeights, type UpgradeResult } from '../lib/ots';
 import { describeProofStatus } from '../lib/vaultStatus';
-import type { VaultRecord } from '../lib/types';
+import type { EvidenceRecord, VaultRecord } from '../lib/types';
 import type { useVault } from './useVault';
 
 interface Props {
@@ -20,16 +22,18 @@ interface Props {
   vault: ReturnType<typeof useVault>;
   onBack: () => void;
   onRemoved: () => void;
+  onOpenVerify: () => void;
 }
 
 const isRtl = (text: string): boolean => /[؀-ۿ]/.test(text);
 
-export default function VaultRecordScreen({ entry, vault, onBack, onRemoved }: Props) {
+export default function VaultRecordScreen({ entry, vault, onBack, onRemoved, onOpenVerify }: Props) {
   const { record, isDemo, savedAt } = entry;
   const [revealed, setRevealed] = useState(false);
-  const [checking, setChecking] = useState(false);
-  const [checkNote, setCheckNote] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importNote, setImportNote] = useState<string | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   // Created and revoked by the same effect run — not split across a useMemo and a
   // separate cleanup effect, which under React StrictMode's dev-only double-invocation
@@ -45,44 +49,71 @@ export default function VaultRecordScreen({ entry, vault, onBack, onRemoved }: P
   const status = describeProofStatus(entry);
   const country = record.handover?.countryId ? findCountry(record.handover.countryId) : undefined;
 
-  const checkConfirmation = async (): Promise<void> => {
-    if (!record.proof) return;
-    setChecking(true);
-    setCheckNote(null);
-    try {
-      const result = await upgradeProof(record.proof.ots);
-      if (result.errors.length > 0 && !result.changed) {
-        // Calendars serve the /digest submission endpoint with CORS enabled, but not
-        // every calendar does the same for the GET this upgrade check needs — a browser
-        // silently blocks reading that response even though a plain HTTP client (or the
-        // reference `ots` CLI) reads it fine. There is no client-side retry that fixes
-        // this, so point at the tool that isn't affected rather than imply trying again
-        // might help.
-        setCheckNote(
-          'This browser could not read a response from the calendar — some of them don’t allow that ' +
-            'for this particular check. Use the standalone tool below, which isn’t affected.',
+  // Read from a ref inside `onUpgraded` below, so the callback always builds off the latest
+  // record even though `useProofCheck`'s effects are keyed on `record.id` alone — not on
+  // `record` itself, which changes identity every time a check saves an upgraded proof, and
+  // would otherwise restart the polling loop it's in the middle of running.
+  const recordRef = useRef(record);
+  useEffect(() => {
+    recordRef.current = record;
+  }, [record]);
+
+  const isConfirmed = status.tone === 'affirm';
+
+  const onUpgraded = useCallback(
+    async (result: UpgradeResult): Promise<void> => {
+      const current = recordRef.current;
+      if (!current.proof) return;
+      const updated: EvidenceRecord = { ...current, proof: { ...current.proof, ots: result.ots } };
+      recordRef.current = updated;
+      await vault.save(updated, { isDemo: false });
+    },
+    [vault],
+  );
+
+  const proofCheck = useProofCheck({
+    trackingKey: !isDemo && record.proof && !isConfirmed ? record.id : null,
+    ots: record.proof?.ots ?? null,
+    pendingUris: record.proof?.pendingUris ?? [],
+    onUpgraded,
+  });
+
+  // The automatic check above (see useProofCheck / functions/api/ots-check.ts) covers the
+  // normal case. This is the fallback for everything else: a proof already upgraded outside
+  // this browser entirely — a different device, the CLI, or opentimestamps.org — brought
+  // back into this record so its status can catch up without waiting on this device's own
+  // next check.
+  const handleImportProof = useCallback(
+    async (file: File): Promise<void> => {
+      const current = recordRef.current;
+      if (!current.proof) return;
+      setImporting(true);
+      setImportNote(null);
+      try {
+        const incoming = new Uint8Array(await file.arrayBuffer());
+        const merged = mergeProofs(current.proof.ots, incoming);
+        const pendingUris = collectPendingUris(parseDetachedOts(merged).timestamp);
+        const updated: EvidenceRecord = { ...current, proof: { ...current.proof, ots: merged, pendingUris } };
+        recordRef.current = updated;
+        await vault.save(updated, { isDemo: false });
+        const heights = confirmedBlockHeights(merged);
+        setImportNote(
+          heights.length > 0
+            ? `Confirmed on Bitcoin block #${heights[0]}.`
+            : 'Imported. Still pending — no confirmed attestation in that file yet either.',
         );
-        return;
+      } catch (err) {
+        setImportNote(
+          err instanceof Error && err.message.startsWith('That proof is for a different file')
+            ? err.message
+            : 'Could not read that as an OpenTimestamps proof for this record.',
+        );
+      } finally {
+        setImporting(false);
       }
-      if (!result.changed) {
-        setCheckNote('Still pending — nothing new from the calendars yet.');
-        return;
-      }
-      await vault.save(
-        { ...record, proof: { ...record.proof, ots: result.ots } },
-        { isDemo: false },
-      );
-      setCheckNote(
-        result.confirmedHeights.length > 0
-          ? `Confirmed on Bitcoin block #${result.confirmedHeights[0]}.`
-          : 'The proof grew a new attestation, but is not yet confirmed on the ledger.',
-      );
-    } catch {
-      setCheckNote('The check could not run here. Use the standalone tool below instead.');
-    } finally {
-      setChecking(false);
-    }
-  };
+    },
+    [vault],
+  );
 
   return (
     <div className="space-y-6">
@@ -182,32 +213,47 @@ export default function VaultRecordScreen({ entry, vault, onBack, onRemoved }: P
           {status.detail}
         </Callout>
 
-        {!isDemo && record.proof ? (
-          <div className="space-y-2">
-            <Button variant="secondary" onClick={checkConfirmation} disabled={checking}>
-              {checking ? 'Checking…' : 'Check for confirmation'}
-            </Button>
-            {checkNote ? <p className="text-sm text-ink-muted">{checkNote}</p> : null}
-            <p className="text-xs text-ink-subtle">
-              This button works when the calendar allows it, and says so plainly when one doesn’t. It
-              never depends on this app either way: with the original file and the .ots proof
-              downloaded below, anyone can check confirmation with{' '}
-              <code className="rounded bg-sunken px-1 py-0.5 font-mono">
-                pip install opentimestamps-client &amp;&amp; ots upgrade
-              </code>
-              , or at{' '}
-              <a
-                href="https://opentimestamps.org"
-                target="_blank"
-                rel="noreferrer noopener"
-                className="text-accent underline underline-offset-2 hover:text-accent-hover"
-              >
-                opentimestamps.org
-                <span className="sr-only"> (opens in a new tab)</span>
-              </a>
-              .
+        {!isDemo && record.proof && !isConfirmed ? <ProofLivePanel state={proofCheck} /> : null}
+
+        {!isDemo && record.proof && !isConfirmed ? (
+          <div className="space-y-2 border-t border-line pt-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-ink-subtle">
+              Already checked it somewhere else?
             </p>
+            <p className="text-xs text-ink-subtle">
+              If a check outside this app — the CLI, opentimestamps.org, or a check on the verify page — found a
+              confirmation, import that <code className="rounded bg-sunken px-1 py-0.5 font-mono">.ots</code> file
+              here to bring it into this record.
+            </p>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".ots"
+              className="sr-only"
+              tabIndex={-1}
+              aria-hidden="true"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void handleImportProof(f);
+                e.target.value = '';
+              }}
+            />
+            <Button variant="secondary" onClick={() => importInputRef.current?.click()} disabled={importing}>
+              {importing ? 'Importing…' : 'Import a proof file'}
+            </Button>
+            {importNote ? <p className="text-sm text-ink-muted">{importNote}</p> : null}
           </div>
+        ) : null}
+
+        {!isDemo && record.proof ? (
+          <p className="text-xs text-ink-subtle">
+            You can also verify this record independently, with just the original file and the .ots proof
+            downloaded below, on the{' '}
+            <button type="button" onClick={onOpenVerify} className="text-accent underline underline-offset-2 hover:text-accent-hover">
+              verify page
+            </button>
+            .
+          </p>
         ) : null}
       </Card>
 

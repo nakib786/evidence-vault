@@ -113,7 +113,7 @@ export default function ExportScreen({ items, packageId, vault, onStartOver, onO
       <PackageExportBundle items={items} packageId={packageId} />
 
       {/* ---- Vault (on by default, one tap to opt out) ----------------------- */}
-      <Card className="space-y-4">
+      <Card className="space-y-4" data-tour="export-vault-save">
         <div>
           <h2 className="font-display text-lg font-bold text-ink">A copy is kept in your vault</h2>
           <p className="mt-1 text-sm text-ink-muted">
