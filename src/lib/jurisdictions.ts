@@ -2,7 +2,7 @@
  * Where a report can actually go, by jurisdiction.
  *
  * A word on what this is and is not. There is **no API** — public, private, or otherwise —
- * for submitting evidence to police forces or courts in the United States or Canada. Any
+ * for submitting evidence to police forces or courts in any of the countries below. Any
  * tool with a "send to police" button either opens a web form for you or is lying. Filing
  * a false or fabricated police report is itself an offence, and a tool that left someone
  * *believing* they had filed a report when they had not would be actively dangerous.
@@ -17,9 +17,17 @@
  * default channel would send people down a path that mostly does not exist, so each entry
  * records its real channels and the UI shows phone and web with equal weight.
  *
- * Links were verified on 2026-08-22. Public-sector sites reorganise often, so each entry
- * points at a stable root rather than a deep link whose slug will rot, and the UI tells
- * the user to confirm details on the agency's own site.
+ * US/CA links were verified on 2026-08-22; GB/AU on 2026-08-23. Public-sector sites
+ * reorganise often, so each entry points at a stable root rather than a deep link whose
+ * slug will rot, and the UI tells the user to confirm details on the agency's own site.
+ *
+ * Only four countries are hand-curated so far — this is a hackathon build under a hard
+ * deadline, and city-level detail (a real hate-crime unit's real phone number) takes real
+ * verification per city, which does not scale to "every country" in the time available.
+ * Fabricating a plausible-looking phone number for a police department we haven't actually
+ * checked would be worse than not listing one at all, so `intl` — the entry for everyone
+ * else — deliberately stays generic rather than inventing specifics. Extending this to more
+ * countries the same careful way is the obvious next step.
  */
 
 export type ChannelKind = 'emergency' | 'phone' | 'online' | 'inPerson';
@@ -48,7 +56,9 @@ export interface Region {
 }
 
 export interface Country {
-  id: 'us' | 'ca';
+  /** ISO 3166-1 alpha-2, lowercased (e.g. 'us', 'gb') — this is what lets an IP-derived country
+   *  code from `functions/api/approx-location.ts` match an entry here without a lookup table. */
+  id: string;
   name: string;
   /** Bodies that accept reports from anywhere in the country. */
   national: Agency[];
@@ -68,6 +78,34 @@ const EMERGENCY_US: Channel = {
   value: '911',
 };
 const EMERGENCY_CA: Channel = { ...EMERGENCY_US };
+const EMERGENCY_UK: Channel = { ...EMERGENCY_US, value: '999' };
+const EMERGENCY_AU: Channel = { ...EMERGENCY_US, value: '000' };
+
+/**
+ * A minimal, honest region entry for a country under the catch-all `intl` entry below — one
+ * this app hasn't hand-verified specific police/community agencies for. Only the national
+ * emergency number is stated (cross-checked against multiple sources, not just one), because
+ * that's a stable, well-documented fact; everything else is a pointer to search rather than
+ * an invented agency name or phone number, for the reason the module doc comment above gives.
+ */
+function genericCountryRegion(id: string, countryName: string, emergencyNumber: string): Region {
+  return {
+    id,
+    name: countryName,
+    agencies: [
+      {
+        id: `${id}-generic`,
+        name: 'Your local police service',
+        role: 'The right first contact almost everywhere for something that may be criminal.',
+        channels: [{ kind: 'emergency', label: 'Emergency — someone is in danger right now', value: emergencyNumber }],
+        note:
+          `This app doesn't have local police contacts hand-verified for ${countryName} yet — try ` +
+          `searching "${countryName} hate crime reporting" or "${countryName} police non-emergency ` +
+          'number", and check for a national Muslim civil-rights or community organisation near you.',
+      },
+    ],
+  };
+}
 
 export const COUNTRIES: Country[] = [
   {
@@ -408,6 +446,199 @@ export const COUNTRIES: Country[] = [
         note: 'They can advise on whether to involve police and what to expect if you do.',
       },
     ],
+  },
+  {
+    id: 'gb',
+    name: 'United Kingdom',
+    evidenceLaw: {
+      citation: 'Civil Evidence Act 1995 / Criminal Justice Act 2003, and the common-law presumption of proper functioning',
+      summary:
+        'England, Wales and Northern Ireland have no single statute mirroring the US’s hash-based ' +
+        'self-authentication rule. Courts instead rely on the common-law presumption that a computer ' +
+        'system was working correctly at the relevant time (following the repeal of PACE 1984 s.69), ' +
+        'assessed under the ordinary rules for documentary evidence — the Civil Evidence Act 1995 in ' +
+        'civil proceedings, the Criminal Justice Act 2003 in criminal ones. This certificate sets out ' +
+        'the technical facts a solicitor needs to make that case. Scotland follows its own, separate ' +
+        'rules of evidence.',
+    },
+    national: [
+      {
+        id: 'true-vision',
+        name: 'True Vision — police online hate crime reporting',
+        role:
+          'A police-funded reporting site covering forces across England, Wales and Northern ' +
+          'Ireland. An online report is routed to the right local force automatically.',
+        channels: [
+          EMERGENCY_UK,
+          { kind: 'online', label: 'Report a hate crime online', value: 'https://www.report-it.org.uk/' },
+          { kind: 'phone', label: 'Non-emergency — 101', value: '101' },
+        ],
+        note: 'Scotland is policed separately, by Police Scotland, rather than through True Vision.',
+      },
+    ],
+    regions: [
+      {
+        id: 'gb-other',
+        name: 'Anywhere in the UK',
+        agencies: [
+          {
+            id: 'gb-local-generic',
+            name: 'Your local police force',
+            role:
+              'Every police force in the UK records hate crime, and most have a dedicated ' +
+              'community safety or hate crime unit.',
+            channels: [EMERGENCY_UK, { kind: 'phone', label: 'Non-emergency — 101', value: '101' }],
+            note: 'True Vision, above, is usually the fastest route — it routes your report to the right force for you.',
+          },
+        ],
+      },
+    ],
+    community: [
+      {
+        id: 'tell-mama',
+        name: 'Tell MAMA — Measuring Anti-Muslim Attacks',
+        role:
+          'The UK’s dedicated service for supporting victims of anti-Muslim hate and recording ' +
+          'incidents nationally.',
+        channels: [
+          { kind: 'online', label: 'Submit a report', value: 'https://tellmamauk.org/submit-a-report/' },
+          { kind: 'phone', label: 'Tell MAMA helpline', value: '0800 456 1226' },
+        ],
+        note: 'Often the most useful first call — they can advise on whether and how to involve police.',
+      },
+    ],
+  },
+  {
+    id: 'au',
+    name: 'Australia',
+    evidenceLaw: {
+      citation: 'Evidence Act 1995 (Cth), section 146',
+      summary:
+        'Section 146 creates a presumption that a device of a kind that, if properly used, ordinarily ' +
+        'produces a particular output was producing accurate output at the relevant time — the ' +
+        'closest Australian equivalent to the US’s hash-based self-authentication rule, though not ' +
+        'identical to it. Most states and territories have adopted equivalent provisions under the ' +
+        'uniform Evidence Acts. This certificate sets out the technical facts a lawyer needs to rely ' +
+        'on that presumption.',
+    },
+    national: [
+      {
+        id: 'afp-hate-crime',
+        name: 'Australian Federal Police — National Security Investigations',
+        role:
+          'Investigates threats of violence and hatred motivated by faith, including Islamophobia, ' +
+          'where it rises to a Commonwealth offence.',
+        channels: [
+          EMERGENCY_AU,
+          { kind: 'phone', label: 'Police Assistance Line (non-emergency)', value: '131 444' },
+          { kind: 'online', label: 'Report a crime to the AFP', value: 'https://www.afp.gov.au/report-crime' },
+          { kind: 'phone', label: 'National Security Hotline (24 hr)', value: '1800 123 400' },
+        ],
+      },
+    ],
+    regions: [
+      {
+        id: 'au-other',
+        name: 'Anywhere in Australia',
+        agencies: [
+          {
+            id: 'au-local-generic',
+            name: 'Your state or territory police',
+            role:
+              'Policing is state-based in Australia; most state and territory police services have ' +
+              'their own hate crime or community engagement contacts.',
+            channels: [EMERGENCY_AU, { kind: 'phone', label: 'Police Assistance Line (non-emergency)', value: '131 444' }],
+            note: 'Search for your state or territory police service’s own hate crime reporting page for the most direct route.',
+          },
+        ],
+      },
+    ],
+    community: [
+      {
+        id: 'islamophobia-register-au',
+        name: 'Islamophobia Register Australia',
+        role:
+          'An independent, university-partnered register that records and analyses Islamophobic ' +
+          'incidents nationally.',
+        channels: [
+          { kind: 'online', label: 'Report an incident', value: 'https://islamophobia.com.au/report-an-incident/' },
+        ],
+        note: 'Can connect you to free legal advice or culturally sensitive mental health support.',
+      },
+    ],
+  },
+  {
+    id: 'intl',
+    name: 'Somewhere else',
+    evidenceLaw: {
+      citation: 'Varies by country',
+      summary:
+        'This app only has reporting routes hand-verified for the US, Canada, the UK and Australia ' +
+        'so far. Rules for authenticating electronic evidence differ by country, so a local lawyer ' +
+        'should review this certificate before it is relied on anywhere else — but the report, the ' +
+        'fingerprint and the timestamp proof underneath it are not tied to any one country’s law, ' +
+        'and work the same wherever this ends up.',
+    },
+    national: [
+      {
+        id: 'intl-generic',
+        name: 'Your local police service',
+        role: 'The right first contact almost everywhere for something that may be criminal.',
+        channels: [
+          {
+            kind: 'phone',
+            label: 'Try 112 if you don’t know your own country’s number — works in the EU and as a mobile backup in many other places, but is not universal',
+            value: '112',
+          },
+        ],
+        note:
+          'There is no single emergency number that works worldwide (911, 999, 000, 100, 110 and ' +
+          '119 are all in use elsewhere) — check your own country’s official number. For a next ' +
+          'step beyond the emergency line, search for your country’s police non-emergency contact, ' +
+          'or a local Muslim civil-rights or community organisation.',
+      },
+    ],
+    // Just the national emergency number per country, cross-checked against more than one
+    // source — see `genericCountryRegion` above for why nothing more specific is invented.
+    regions: [
+      genericCountryRegion('intl-ie', 'Ireland', '112'),
+      genericCountryRegion('intl-fr', 'France', '112'),
+      genericCountryRegion('intl-de', 'Germany', '112'),
+      genericCountryRegion('intl-nl', 'Netherlands', '112'),
+      genericCountryRegion('intl-be', 'Belgium', '112'),
+      genericCountryRegion('intl-es', 'Spain', '112'),
+      genericCountryRegion('intl-it', 'Italy', '112'),
+      genericCountryRegion('intl-pt', 'Portugal', '112'),
+      genericCountryRegion('intl-se', 'Sweden', '112'),
+      genericCountryRegion('intl-no', 'Norway', '112'),
+      genericCountryRegion('intl-dk', 'Denmark', '112'),
+      genericCountryRegion('intl-fi', 'Finland', '112'),
+      genericCountryRegion('intl-ch', 'Switzerland', '112'),
+      genericCountryRegion('intl-at', 'Austria', '112'),
+      genericCountryRegion('intl-pl', 'Poland', '112'),
+      genericCountryRegion('intl-tr', 'Turkey', '112'),
+      genericCountryRegion('intl-gr', 'Greece', '112'),
+      genericCountryRegion('intl-in', 'India', '112'),
+      genericCountryRegion('intl-pk', 'Pakistan', '15'),
+      genericCountryRegion('intl-bd', 'Bangladesh', '999'),
+      genericCountryRegion('intl-idn', 'Indonesia', '112'),
+      genericCountryRegion('intl-my', 'Malaysia', '999'),
+      genericCountryRegion('intl-sg', 'Singapore', '999'),
+      genericCountryRegion('intl-ae', 'United Arab Emirates', '999'),
+      genericCountryRegion('intl-sa', 'Saudi Arabia', '999'),
+      genericCountryRegion('intl-qa', 'Qatar', '999'),
+      genericCountryRegion('intl-kw', 'Kuwait', '112'),
+      genericCountryRegion('intl-za', 'South Africa', '10 111'),
+      genericCountryRegion('intl-ng', 'Nigeria', '112'),
+      genericCountryRegion('intl-ke', 'Kenya', '999'),
+      genericCountryRegion('intl-nz', 'New Zealand', '111'),
+      genericCountryRegion('intl-jp', 'Japan', '110'),
+      genericCountryRegion('intl-kr', 'South Korea', '112'),
+      genericCountryRegion('intl-ph', 'Philippines', '911'),
+      genericCountryRegion('intl-br', 'Brazil', '190'),
+      genericCountryRegion('intl-mx', 'Mexico', '911'),
+    ],
+    community: [],
   },
 ];
 

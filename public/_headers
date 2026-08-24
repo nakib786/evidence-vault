@@ -1,9 +1,9 @@
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; child-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self' https://a.pool.opentimestamps.org https://b.pool.opentimestamps.org https://a.pool.eternitywall.com https://finney.calendar.eternitywall.com; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; child-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self' https://a.pool.opentimestamps.org https://b.pool.opentimestamps.org https://a.pool.eternitywall.com https://finney.calendar.eternitywall.com https://api.ipify.org https://api6.ipify.org https://overpass-api.de https://maps.mail.ru; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'; upgrade-insecure-requests
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
   Cross-Origin-Opener-Policy: same-origin
-  Permissions-Policy: camera=(self), microphone=(self), geolocation=(), payment=(), usb=(), interest-cohort=()
+  Permissions-Policy: camera=(self), microphone=(self), geolocation=(self), payment=(), usb=(), interest-cohort=()
   X-Frame-Options: DENY
 
 # `media-src` must name blob: explicitly. Recorded video is previewed and sampled for the
@@ -13,6 +13,23 @@
 # `data:` is present in font-src because jsPDF inlines its standard font metrics as
 # data: URIs to measure text; blocking them silently degrades line wrapping in the PDF.
 # It cannot be used to exfiltrate anything — a data: URI carries no network request.
+#
+# `connect-src` also names api.ipify.org / api6.ipify.org (the footer's IPv4/IPv6 lookup —
+# see useMyIp.ts) and overpass-api.de plus its maps.mail.ru mirror (the nearby mosque/police
+# search — see NearbyResourcesSection.tsx / nearbyPlaces.ts). Same blind spot as media-src
+# above: the dev server ships no CSP, so a missing host here only ever shows up in production,
+# as a fetch that silently fails with nothing in the console pointing at why. The mirror is
+# there because the primary is a single shared public server that rate-limits by IP and drops
+# CORS headers on throttled responses — nearbyPlaces.ts falls back to it. See that file's own
+# comment for why this particular mirror, and not one of three others that looked fine but
+# turned out broken in ways that don't show up as an error (silent 500s, a User-Agent
+# allowlist that blocks every real browser, or a 200 response with an empty database).
+#
+# `Permissions-Policy: geolocation=(self)` — not `()` — for the same reason: `()` blocks the
+# Geolocation API outright, so `navigator.geolocation.getCurrentPosition` in useGeolocation.ts
+# would reject as if permission were denied before the browser ever showed its own prompt.
+# `(self)` still requires the ordinary per-visit browser permission prompt; it only lifts the
+# origin-level block.
 
 /sw.js
   Cache-Control: no-cache

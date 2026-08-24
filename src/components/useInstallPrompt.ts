@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { isIosWebkit } from '../lib/platform';
 
 /**
  * Chrome/Edge/Android's non-standard install event. Not in lib.dom.d.ts, so it's typed
@@ -15,15 +16,6 @@ function isStandalone(): boolean {
     // iOS Safari's own flag — display-mode media query support there is unreliable.
     (navigator as unknown as { standalone?: boolean }).standalone === true
   );
-}
-
-/** Safari and Chrome on iOS/iPadOS both use WebKit and neither exposes `beforeinstallprompt`. */
-function isIosWebkit(): boolean {
-  const ua = navigator.userAgent;
-  const isIosDevice = /iphone|ipad|ipod/i.test(ua);
-  // iPadOS 13+ reports as "Macintosh" but, unlike a real Mac, has touch support.
-  const isIpadDesktopMode = /macintosh/i.test(ua) && navigator.maxTouchPoints > 1;
-  return isIosDevice || isIpadDesktopMode;
 }
 
 /**

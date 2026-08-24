@@ -13,6 +13,7 @@ import { formatDigestForHumans } from './hash';
 import { CATEGORIES, SEVERITIES, labelFor } from './taxonomy';
 import { extractFrames, formatDuration } from './media';
 import { describeCaptureMeta } from './captureMeta';
+import { formatLocation } from './geo';
 
 const PAGE = { width: 595.28, height: 841.89 }; // A4 in points
 const MARGIN = 56;
@@ -294,6 +295,9 @@ async function renderItemSections(doc: Doc, record: EvidenceRecord, index: numbe
   if (details.contactName) doc.field('Reporter name', details.contactName);
   if (details.contactEmail) doc.field('Reporter email', details.contactEmail);
   if (details.contactPhone) doc.field('Reporter phone', details.contactPhone);
+  if (details.location) {
+    doc.field('Location', formatLocation(details.location));
+  }
   doc.field('File type', record.mimeType);
   doc.field('File size', humanBytes(record.byteLength));
   if (record.captureMeta) {

@@ -21,7 +21,11 @@ import { CATEGORIES, SEVERITIES, IMMEDIATE_DANGER } from '../lib/taxonomy';
 import { OCR_LANGUAGES, recognise, type OcrProgress } from '../lib/ocr';
 import { formatDuration } from '../lib/media';
 import { describeCaptureMeta } from '../lib/captureMeta';
-import type { CaptureItem, ReportDetails } from '../lib/types';
+import { isIosWebkit } from '../lib/platform';
+import { formatCoordinates } from '../lib/geo';
+import { useGeolocation } from './useGeolocation';
+import { useApproxLocation } from './useApproxLocation';
+import type { CaptureItem, GeoLocation, ReportDetails } from '../lib/types';
 
 interface Props {
   items: CaptureItem[];
@@ -107,6 +111,8 @@ function ItemCard({
   const [ocrState, setOcrState] = useState<'idle' | 'running' | 'done' | 'failed'>('idle');
   const [ocrProgress, setOcrProgress] = useState<OcrProgress | null>(null);
   const [ocrNote, setOcrNote] = useState<string | null>(null);
+  const geo = useGeolocation();
+  const approxLoc = useApproxLocation();
 
   const ids = useId();
   const id = (name: string) => `${ids}-${name}`;
@@ -123,6 +129,20 @@ function ItemCard({
 
   const set = <K extends keyof ReportDetails>(key: K, value: ReportDetails[K]): void => {
     if (record) onChange({ ...record.details, [key]: value });
+  };
+
+  // Prefills "Where did this happen?" with the raw coordinates, but only if that field is
+  // still blank — never overwrites something the reporter already typed. Bundled into one
+  // onChange call rather than two `set()` calls, since each `set()` rebuilds from the same
+  // pre-update `record.details` closure and the second call would otherwise discard the
+  // first's change.
+  const applyLocation = (location: GeoLocation): void => {
+    if (!record) return;
+    onChange({
+      ...record.details,
+      location,
+      platform: record.details.platform.trim() ? record.details.platform : formatCoordinates(location),
+    });
   };
 
   const runOcr = async (): Promise<void> => {
@@ -314,6 +334,87 @@ function ItemCard({
                 onChange={(e) => set('note', e.target.value)}
               />
             </Field>
+
+            {/* ---- Location (optional, GPS read only on request) ---- */}
+            <div>
+              <p className="font-display text-sm font-semibold text-ink">
+                Pin the location <span className="ml-1.5 font-sans font-normal text-ink-subtle">optional</span>
+              </p>
+              <p className="mt-1 text-sm text-ink-muted">
+                Adds the coordinates your device reports right now to this record and its report.
+                Nothing is read until you press the button, and your browser will ask permission first.
+              </p>
+              {record.details.location ? (
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-sunken p-3">
+                  <div>
+                    <p className="font-mono text-sm text-ink">{formatCoordinates(record.details.location)}</p>
+                    <p className="text-xs text-ink-subtle">
+                      {record.details.location.source === 'ip'
+                        ? 'Approximate — from your IP address, city-level at best. Not this device’s GPS.'
+                        : record.details.location.accuracyMeters != null
+                          ? `Accurate to within about ${Math.round(record.details.location.accuracyMeters)} m`
+                          : 'Accuracy not reported by this device'}
+                    </p>
+                  </div>
+                  <Button variant="quiet" className="px-3 py-1.5 text-sm" onClick={() => set('location', null)}>
+                    Remove
+                  </Button>
+                </div>
+              ) : (
+                <div className="mt-2 space-y-2">
+                  <Button
+                    variant="secondary"
+                    onClick={() => geo.request((loc) => applyLocation(loc))}
+                    disabled={geo.state === 'requesting'}
+                  >
+                    {geo.state === 'requesting' ? 'Getting your location…' : 'Add my current location'}
+                  </Button>
+                  {geo.state === 'denied' ? (
+                    <Callout tone="caution" title="Location permission declined">
+                      <p>No coordinates were added — everything else about this record is unaffected.</p>
+                      {isIosWebkit() ? (
+                        <p className="mt-2">
+                          On iPhone or iPad this needs two things allowed: Location Services for this
+                          browser under Settings → Privacy &amp; Security → Location Services, and the
+                          per-site permission the browser itself asks for. If you tapped “Don’t Allow”
+                          earlier, reload this page to be asked again.
+                        </p>
+                      ) : (
+                        <p className="mt-2">
+                          Check this site’s permission in your browser — usually a location icon in the
+                          address bar, or Settings → Site settings → Location — then try again.
+                        </p>
+                      )}
+                    </Callout>
+                  ) : geo.state === 'unavailable' || geo.state === 'error' ? (
+                    <Callout tone="caution" title="Couldn’t get your location">
+                      {geo.errorMessage ?? 'Something went wrong reading your location.'}
+                    </Callout>
+                  ) : null}
+                  {geo.state === 'denied' || geo.state === 'unavailable' || geo.state === 'error' ? (
+                    <div className="space-y-1.5">
+                      <Button
+                        variant="quiet"
+                        className="px-3 py-1.5 text-sm"
+                        onClick={() => approxLoc.request((loc) => applyLocation(loc))}
+                        disabled={approxLoc.state === 'requesting'}
+                      >
+                        {approxLoc.state === 'requesting'
+                          ? 'Approximating…'
+                          : 'Or approximate it from my IP address instead'}
+                      </Button>
+                      <p className="text-xs text-ink-subtle">
+                        Much less precise — city-level, not an exact point — but still useful, and
+                        the report says plainly that it’s an approximation, not GPS.
+                      </p>
+                      {approxLoc.state === 'unavailable' || approxLoc.state === 'error' ? (
+                        <p className="text-xs text-caution">Couldn’t approximate a location either. You can leave this blank.</p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* ---- Contact details (optional, and called out as such) ---- */}

@@ -19,6 +19,7 @@ import { Button, StepIndicator } from './components/ui';
 import Modal from './components/Modal';
 import InstallNudge from './components/InstallNudge';
 import LiveChatBubble from './components/LiveChatBubble';
+import NearbyResourcesSection from './components/NearbyResourcesSection';
 import { useTour } from './components/useTour';
 import { useVault } from './components/useVault';
 import { useMyIp } from './components/useMyIp';
@@ -510,6 +511,12 @@ export default function App() {
           )}
         </main>
 
+        {view === 'flow' && (step === 'capture' || step === 'review') ? (
+          <div className="mt-10">
+            <NearbyResourcesSection />
+          </div>
+        ) : null}
+
         <footer className="mt-14 border-t border-line pt-5 text-xs leading-relaxed text-ink-subtle">
           <p>
             Evidence Vault runs entirely in your browser. Your file, your notes and the text read
@@ -547,12 +554,11 @@ export default function App() {
           </div>
           <div className="mt-4 border-t border-line pt-3">
             <p>
-              Your IP address for this visit:{' '}
-              <span className="font-mono text-ink-muted">
-                {myIp.loading ? 'looking up…' : (myIp.ip ?? 'unavailable')}
-              </span>
-              . We don&apos;t track or save it — it&apos;s read from this one request and never logged
-              or stored anywhere.
+              Your IP address for this visit — IPv4:{' '}
+              <IpBadge loading={myIp.loadingV4} value={myIp.ipv4} /> &nbsp;·&nbsp; IPv6:{' '}
+              <IpBadge loading={myIp.loadingV6} value={myIp.ipv6} />
+              . Shown so you know what any site you report to can already see about you — never
+              logged or stored here.
             </p>
           </div>
         </footer>
@@ -560,6 +566,15 @@ export default function App() {
 
       <LiveChatBubble suppressed={welcome !== null || tour.active || confirmHomeOpen || faqOpen} />
     </div>
+  );
+}
+
+/** A visibly-highlighted chip for one looked-up IP address, so it doesn't blend into the footer's small print. */
+function IpBadge({ loading, value }: { loading: boolean; value: string | null }) {
+  return (
+    <span className="inline-block rounded-full bg-accent-soft px-2 py-0.5 font-mono text-xs font-semibold text-accent">
+      {loading ? 'looking up…' : (value ?? 'unavailable')}
+    </span>
   );
 }
 

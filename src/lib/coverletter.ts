@@ -15,6 +15,7 @@ import { formatDigestForHumans } from './hash';
 import { CATEGORIES, SEVERITIES, labelFor } from './taxonomy';
 import { findCountry, findRegion, type Agency } from './jurisdictions';
 import { formatDuration } from './media';
+import { formatLocation } from './geo';
 
 interface Options {
   stem: string;
@@ -91,6 +92,9 @@ export function buildCoverLetter(record: EvidenceRecord, { stem, evidenceFilenam
   }
   if (record.details.severity) {
     parts.push(`Severity (as described by the reporter): ${labelFor(SEVERITIES, record.details.severity)}`);
+  }
+  if (record.details.location) {
+    parts.push(`Location (reporter-supplied): ${formatLocation(record.details.location)}`);
   }
   if (record.kind === 'video') {
     parts.push(
@@ -265,6 +269,9 @@ export function buildPackageCoverLetter(
     }
     if (record.details.severity) {
       parts.push(`  Severity (as described by the reporter): ${labelFor(SEVERITIES, record.details.severity)}`);
+    }
+    if (record.details.location) {
+      parts.push(`  Location (reporter-supplied): ${formatLocation(record.details.location)}`);
     }
     if (record.kind === 'video') {
       parts.push(

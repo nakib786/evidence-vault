@@ -3,7 +3,7 @@
  * and every file it can produce again — as many times as it needs to go out to a
  * platform, a community organisation, a lawyer and the police, without repeating capture.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Callout, Card } from './ui';
 import ExportBundle from './ExportBundle';
 import ProofLivePanel from './ProofLivePanel';
@@ -14,6 +14,7 @@ import { CATEGORIES, SEVERITIES, labelFor } from '../lib/taxonomy';
 import { findCountry } from '../lib/jurisdictions';
 import { mergeProofs, parseDetachedOts, collectPendingUris, confirmedBlockHeights, type UpgradeResult } from '../lib/ots';
 import { describeProofStatus } from '../lib/vaultStatus';
+import { formatLocation, locationMapUri } from '../lib/geo';
 import type { EvidenceRecord, VaultRecord } from '../lib/types';
 import type { useVault } from './useVault';
 
@@ -175,6 +176,22 @@ export default function VaultRecordScreen({ entry, vault, onBack, onRemoved, onO
         {record.details.sourceUrl ? <Row label="Link" value={record.details.sourceUrl} /> : null}
         {record.details.category ? <Row label="Category" value={labelFor(CATEGORIES, record.details.category)} /> : null}
         {record.details.severity ? <Row label="Severity" value={labelFor(SEVERITIES, record.details.severity)} /> : null}
+        {record.details.location ? (
+          <Row
+            label="Location"
+            value={
+              <>
+                {formatLocation(record.details.location)}{' '}
+                <a
+                  href={locationMapUri(record.details.location)}
+                  className="text-accent underline underline-offset-2 hover:text-accent-hover"
+                >
+                  Open in maps
+                </a>
+              </>
+            }
+          />
+        ) : null}
         {country ? <Row label="Reported toward" value={country.name} /> : null}
         {record.details.contactName ? <Row label="Reporter name" value={record.details.contactName} /> : null}
         {record.details.contactEmail ? <Row label="Reporter email" value={record.details.contactEmail} /> : null}
@@ -298,7 +315,7 @@ export default function VaultRecordScreen({ entry, vault, onBack, onRemoved, onO
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5 border-b border-line pb-3 last:border-0 last:pb-0 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
       <p className="text-xs font-semibold uppercase tracking-wide text-ink-subtle">{label}</p>

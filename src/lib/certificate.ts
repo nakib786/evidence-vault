@@ -24,6 +24,7 @@ import type { EvidenceRecord } from './types';
 import { formatDigestForHumans } from './hash';
 import { findCountry } from './jurisdictions';
 import { formatDuration } from './media';
+import { formatLocation } from './geo';
 
 const PAGE = { width: 595.28, height: 841.89 };
 const MARGIN = 62;
@@ -163,6 +164,9 @@ export async function buildCertificatePdf({
       ? 'Captured directly through the application, using the device camera'
       : 'Imported from storage on the device',
   ]);
+  if (record.details.location) {
+    rows.push(['Location', formatLocation(record.details.location)]);
+  }
 
   for (const [label, value] of rows) {
     ensure(15);

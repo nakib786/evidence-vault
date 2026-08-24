@@ -7,10 +7,11 @@
  * actually accept, and offers to generate the certificate that makes the package usable
  * later. Nothing on this screen sends anything anywhere.
  */
-import { useId } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { Button, Callout, Card, Field, inputClass } from './ui';
 import { COUNTRIES, COURT_GUIDANCE, findCountry, findRegion, type Agency, type Channel } from '../lib/jurisdictions';
 import { IMMEDIATE_DANGER } from '../lib/taxonomy';
+import { useDetectedCountry } from './useDetectedCountry';
 import type { EvidenceRecord, HandoverChoice } from '../lib/types';
 
 interface Props {
@@ -28,6 +29,21 @@ export default function HandoverScreen({ items, choice, onChange, onContinue, on
   const country = choice.countryId ? findCountry(choice.countryId) : undefined;
   const region = country && choice.regionId ? findRegion(country, choice.regionId) : undefined;
   const anyImmediateDanger = items.some((r) => r.details.severity === IMMEDIATE_DANGER);
+  const emergencyNumber = country?.national.flatMap((a) => a.channels).find((c) => c.kind === 'emergency')?.value;
+
+  // Prefills the country dropdown from an approximate, IP-based location — see
+  // useDetectedCountry — but only once, and only into an otherwise-untouched field. Someone
+  // who's already picked (or come back with `choice.countryId` cleared on purpose) doesn't
+  // get overridden the moment this resolves.
+  const [autoDetected, setAutoDetected] = useState(false);
+  const detectedCountry = useDetectedCountry(COUNTRIES.map((c) => c.id));
+  useEffect(() => {
+    if (detectedCountry && !choice.countryId) {
+      onChange({ ...choice, countryId: detectedCountry, regionId: '', selectedAgencyIds: [] });
+      setAutoDetected(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fires once when detectedCountry first resolves; choice/onChange intentionally excluded.
+  }, [detectedCountry]);
 
   const set = <K extends keyof HandoverChoice>(key: K, value: HandoverChoice[K]): void =>
     onChange({ ...choice, [key]: value });
@@ -50,15 +66,24 @@ export default function HandoverScreen({ items, choice, onChange, onContinue, on
 
       {anyImmediateDanger ? (
         <Callout tone="danger" title="If someone is in danger right now, call emergency services first">
-          Dial <strong>911</strong>. This app does not contact anyone on your behalf, and nobody is
-          alerted that you made this record.
+          {emergencyNumber ? (
+            <>
+              Dial <strong>{emergencyNumber}</strong>. This app does not contact anyone on your
+              behalf, and nobody is alerted that you made this record.
+            </>
+          ) : (
+            <>
+              Dial your local emergency number. This app does not contact anyone on your behalf,
+              and nobody is alerted that you made this record.
+            </>
+          )}
         </Callout>
       ) : null}
 
       <Callout tone="info" title="This app does not file anything for you">
-        No police service or court in the United States or Canada accepts evidence through an
-        automated submission. Everything below is a route you take yourself — we make sure you take
-        the right one, with a package that will be accepted when you get there.
+        No police service or court accepts evidence through an automated submission. Everything
+        below is a route you take yourself — we make sure you take the right one, with a package
+        that will be accepted when you get there.
       </Callout>
 
       {/* ---- Jurisdiction ---- */}
@@ -68,7 +93,10 @@ export default function HandoverScreen({ items, choice, onChange, onContinue, on
             id={id('country')}
             className={inputClass}
             value={choice.countryId}
-            onChange={(e) => onChange({ ...choice, countryId: e.target.value, regionId: '', selectedAgencyIds: [] })}
+            onChange={(e) => {
+              setAutoDetected(false);
+              onChange({ ...choice, countryId: e.target.value, regionId: '', selectedAgencyIds: [] });
+            }}
           >
             <option value="">Choose…</option>
             {COUNTRIES.map((c) => (
@@ -77,6 +105,11 @@ export default function HandoverScreen({ items, choice, onChange, onContinue, on
               </option>
             ))}
           </select>
+          {autoDetected ? (
+            <p className="text-xs text-ink-subtle">
+              Guessed from your approximate location — change it above if this isn’t right.
+            </p>
+          ) : null}
         </Field>
 
         {country ? (

@@ -37,6 +37,30 @@ export const emptyHandover = (): HandoverChoice => ({
   includeCertificate: false,
 });
 
+/**
+ * GPS coordinates read from the device at the reporter's request, to pin down where a
+ * record was captured. Never read automatically — see `useGeolocation` — and, like the
+ * contact fields below, personal enough that the UI calls it out as its own opt-in step
+ * rather than letting it blend in with the plain-text fields.
+ */
+export interface GeoLocation {
+  latitude: number;
+  longitude: number;
+  /** Metres, as reported by the browser. Absent when the platform doesn't supply one. */
+  accuracyMeters: number | null;
+  /** ISO 8601, when the coordinates were read — distinct from `capturedAt` on the record. */
+  readAt: string;
+  /**
+   * 'gps' — the device's own location hardware, via `useGeolocation`. 'ip' — a much coarser
+   * (city-level) fallback derived from the visitor's IP address by Cloudflare's edge, offered
+   * only when GPS wasn't granted or isn't available. 'manual' — typed in directly by the user,
+   * e.g. in `NearbyResourcesSection` when GPS isn't available or they'd rather search around
+   * somewhere other than their current position. The report states plainly which one it is
+   * rather than presenting a guess, or a place the user picked, as if it were a device reading.
+   */
+  source: 'gps' | 'ip' | 'manual';
+}
+
 /** What the user supplies. Everything here is optional except the evidence itself. */
 export interface ReportDetails {
   /** Where it happened, e.g. a platform name. Free text — we don't constrain the world. */
@@ -59,6 +83,8 @@ export interface ReportDetails {
   contactName: string;
   contactEmail: string;
   contactPhone: string;
+  /** GPS coordinates, read from the device only if the reporter asks for them. */
+  location: GeoLocation | null;
 }
 
 export interface TimestampProof {
@@ -135,6 +161,7 @@ export const emptyDetails = (): ReportDetails => ({
   contactName: '',
   contactEmail: '',
   contactPhone: '',
+  location: null,
 });
 
 export type CaptureItemStatus = 'securing' | 'ready' | 'error';
