@@ -270,6 +270,21 @@ export const FAQ: FaqCategory[] = [
           </>
         ),
       },
+      {
+        q: 'Will the vault ever sync across devices, or let me hand a record straight to the police or a platform?',
+        a: (
+          <>
+            Not in this build, on purpose — there is no database anywhere right now, which is also
+            what keeps a breach or a subpoena from being able to expose anyone&rsquo;s records but
+            their own. A later version could add an optional, properly built database instead: still
+            encrypted before it ever leaves your device, so it stays unreadable to whoever runs the
+            servers, letting you reach your own vault from a second device, or send one specific
+            record straight to a platform, an organisation, or police as a time-limited link you
+            choose to create — never automatically. That takes real legal and security work to do
+            safely, which is exactly why it is not in this prototype yet.
+          </>
+        ),
+      },
     ],
   },
   {
@@ -365,9 +380,12 @@ export const FAQ: FaqCategory[] = [
           <>
             This is a working early prototype, not a finished product — the fingerprinting and
             timestamps are real, not mocked, but there is more planned: a browser extension that
-            captures a post along with its real metadata, native phone apps for faster capture,
-            and a version that does not visibly announce itself as a reporting tool on someone&rsquo;s
-            home screen.
+            captures a post along with its real metadata, native phone apps for faster capture, a
+            version that does not visibly announce itself as a reporting tool on someone&rsquo;s
+            home screen, and — kept strictly opt-in and encrypted end to end — a way to reach the
+            same vault record from another device or hand one record straight to an authority,
+            without weakening the &ldquo;nothing leaves this device unless you choose&rdquo;
+            promise that holds today.
           </>
         ),
       },

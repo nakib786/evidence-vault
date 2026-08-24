@@ -35,6 +35,19 @@ What this honestly does **not** do: it doesn't hide that a vault app is installe
 
 Two smaller safety features ride along with this, both in `VaultScreen.tsx`: the vault re-locks itself after three minutes of no interaction, and the Escape key re-locks it instantly — so it doesn't have to be left open (real or decoy) longer than the person is actually looking at it.
 
+### If this ever grows a database: how to do it without recreating the risk
+
+Nothing above should be read as "a database is off the table forever." It is off the table for *this* prototype, because a student hackathon team has no legal team, no encrypted hosted infrastructure, and no institutional partner to safely carry a database of screenshots documenting hate targeting real people — see the eyeWitness to Atrocities comparison in [RESEARCH.md](RESEARCH.md). A real product built past this hackathon could reasonably add one, but only if it stays at least as safe as having no database at all:
+
+- **Opt-in, off by default.** The zero-egress promise stays true for everyone who never turns this on.
+- **Zero-knowledge, not just "encrypted at rest."** Encrypt on-device with a key the server never receives — the same AES-256-GCM/PBKDF2 approach the vault already uses locally, extended so a synced copy is still unreadable to whoever operates the database. A breach of the database alone should yield ciphertext, not evidence.
+- **Per-record, consent-gated sharing, not a standing feed.** "Share directly with a concerned authority" should mean generating a specific, time-limited, revocable decryption grant for one record, handed to one named recipient, only when the person taps to do it — never an always-on pipe that hands new reports to police or a platform automatically. Automatic reporting is already ruled out above for a different reason (there is no such API to plug into); it stays ruled out here for a second one: the person filing the report should always decide, per record, who sees it and when.
+- **An auditable chain of custody** that logs who a record's grant was issued to and when, without the operator being able to read the record itself — the same kind of custody trail eyeWitness's LexisNexis-hosted layer exists to provide.
+- **Compliance matched to who might receive it** — relevant data-protection law in the reporter's jurisdiction (e.g. PIPEDA in Canada), and, if a share target is ever a police service directly rather than a link the person forwards themselves, the additional handling rules that implies (e.g. CJIS in the US) — decided with legal review before it ships, not after.
+- **A named institutional partner and legal review.** This is the actual gap between this prototype and eyeWitness's product, and no amount of good architecture substitutes for it.
+
+Skipping all of this and shipping a plain database would be strictly worse than what exists today: it would turn "no persistent database of who-reported-what-about-whom" — the property that satisfies hackathon rule §06 — into a single high-value target holding exactly the personal, protected-identity-linked data that rule exists to keep out of harm's way.
+
 ## Threat model
 
 | Risk | Mitigation |

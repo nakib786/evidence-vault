@@ -174,6 +174,14 @@ const SLIDES: Slide[] = [
             screen. For someone documenting a person they live or work with, that is a safety
             requirement.
           </Planned>
+          <Planned title="A secure, opt-in way to reach your vault anywhere">
+            Right now the vault lives only in this browser, on this device — on purpose, not
+            because we ran out of time. A full product could add an optional synced vault,
+            encrypted before it ever leaves your device so it stays unreadable even to us, plus a
+            way to hand one record straight to a platform, an organisation or police with your
+            explicit say-so each time — built with real legal backing behind it, not bolted on
+            casually.
+          </Planned>
         </ul>
       </section>
     ),
