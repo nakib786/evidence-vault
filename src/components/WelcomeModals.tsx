@@ -38,6 +38,14 @@ const SLIDES: Slide[] = [
     title: 'Evidence that holds up',
     content: (
       <div className="space-y-6">
+        <section className="rounded-xl border border-accent/30 bg-accent-soft p-4">
+          <p className="text-sm font-semibold text-ink">For hackathon judges</p>
+          <p className="mt-1 text-sm text-ink-muted">
+            This walkthrough is written for you: it covers what this app is, what it actually
+            does end to end, and what&rsquo;s still on the roadmap — so you know what to expect
+            before you start clicking around.
+          </p>
+        </section>
         <figure className="border-l-[3px] border-accent pl-4">
           <p className="font-display text-3xl font-bold leading-none text-ink">Over half</p>
           <p className="mt-1.5 text-sm text-ink-muted">

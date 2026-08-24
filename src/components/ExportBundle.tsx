@@ -28,6 +28,7 @@ export default function ExportBundle({ record }: { record: EvidenceRecord }) {
 
   const stem = `evidence-${record.id}`;
   const isVideoRecord = record.kind === 'video';
+  const isAudioRecord = record.kind === 'audio';
   const imageName = `${stem}.${extensionForMime(record.mimeType)}`;
   const hasNonLatinTranscript = needsCompanionTextFile(record.details.transcript);
 
@@ -126,7 +127,9 @@ export default function ExportBundle({ record }: { record: EvidenceRecord }) {
           description={
             isVideoRecord
               ? 'The document to send onward. Contains sampled frames from the recording, your account, the fingerprint, and instructions for verifying it.'
-              : 'The document to send onward. Contains the image, your account, the fingerprint, and instructions for verifying it.'
+              : isAudioRecord
+                ? 'The document to send onward. Contains your account, the transcript of what was said, the fingerprint, and instructions for verifying it. A PDF cannot play the recording, which travels alongside it.'
+                : 'The document to send onward. Contains the image, your account, the fingerprint, and instructions for verifying it.'
           }
           disabled={!pdf}
           done={saved.has('pdf')}
@@ -140,12 +143,14 @@ export default function ExportBundle({ record }: { record: EvidenceRecord }) {
         />
 
         <DownloadRow
-          title={isVideoRecord ? 'Original recording' : 'Original image'}
+          title={isVideoRecord ? 'Original recording' : isAudioRecord ? 'Original audio' : 'Original image'}
           filename={imageName}
           description={
             isVideoRecord
               ? 'Keep this exactly as it is. The proof only verifies against these precise bytes — re-encoding, trimming or compressing the video will break the match.'
-              : 'Keep this exactly as it is. The proof below only verifies against these precise bytes — re-saving, cropping or resizing it will break the match.'
+              : isAudioRecord
+                ? 'Keep this exactly as it is. The proof below only verifies against these precise bytes — re-encoding or trimming the audio will break the match.'
+                : 'Keep this exactly as it is. The proof below only verifies against these precise bytes — re-saving, cropping or resizing it will break the match.'
           }
           done={saved.has('image')}
           onDownload={() => {

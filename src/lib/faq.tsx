@@ -212,6 +212,19 @@ export const FAQ: FaqCategory[] = [
           </>
         ),
       },
+      {
+        q: 'What does the "Quick exit" button do?',
+        a: (
+          <>
+            Replaces this tab with an ordinary page (a search engine) in one tap, with no
+            confirmation dialog first, so pressing "back" from that page does not return
+            here. It exists for the same reason domestic-violence and other safety sites
+            carry one: sometimes leaving quickly matters more than finishing what you were
+            doing. It cannot do anything about browser history or another tab already open —
+            it only handles this tab.
+          </>
+        ),
+      },
     ],
   },
   {

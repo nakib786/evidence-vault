@@ -259,7 +259,8 @@ async function renderItemSections(doc: Doc, record: EvidenceRecord, index: numbe
   const size = multi ? 13 : 15;
 
   if (multi) {
-    doc.heading(`Item ${index} of ${total} — ${record.kind === 'video' ? 'video' : 'photo'}`, 16);
+    const noun = record.kind === 'video' ? 'video' : record.kind === 'audio' ? 'audio' : 'photo';
+    doc.heading(`Item ${index} of ${total} — ${noun}`, 16);
     doc.gap(2);
   }
 
@@ -267,27 +268,34 @@ async function renderItemSections(doc: Doc, record: EvidenceRecord, index: numbe
   doc.heading(h(1, 'What was recorded'), size);
   doc.field('Record ID', record.id);
   doc.field('Captured', humanTime(record.capturedAt, record.timeZone));
-  doc.field('Medium', record.kind === 'video' ? 'Video recording' : 'Still image');
-  if (record.kind === 'video') {
+  doc.field(
+    'Medium',
+    record.kind === 'video' ? 'Video recording' : record.kind === 'audio' ? 'Audio recording' : 'Still image',
+  );
+  if (record.kind === 'video' || record.kind === 'audio') {
     doc.field(
       'Duration',
       record.durationSeconds ? formatDuration(record.durationSeconds) : 'Not available',
     );
-    doc.field(
-      'Audio',
-      record.source === 'upload'
-        ? 'As present in the original file'
-        : record.hasAudio
-          ? 'Recorded alongside the picture'
-          : 'Not recorded — no microphone was available',
-    );
+    if (record.kind === 'video') {
+      doc.field(
+        'Audio',
+        record.source === 'upload'
+          ? 'As present in the original file'
+          : record.hasAudio
+            ? 'Recorded alongside the picture'
+            : 'Not recorded — no microphone was available',
+      );
+    }
   }
   doc.field(
     'Capture method',
     record.source === 'live'
       ? record.kind === 'video'
         ? 'Live capture — recorded through this application’s camera and hashed the moment recording stopped.'
-        : 'Live capture — photographed through this application’s camera and hashed before being written to a file.'
+        : record.kind === 'audio'
+          ? 'Live capture — recorded through this application’s microphone and hashed the moment recording stopped.'
+          : 'Live capture — photographed through this application’s camera and hashed before being written to a file.'
       : 'Existing file — selected from the device’s storage and hashed on import.',
   );
   doc.field('Platform or setting', details.platform);
@@ -325,11 +333,15 @@ async function renderItemSections(doc: Doc, record: EvidenceRecord, index: numbe
   }
 
   // ---- Transcript ---------------------------------------------------------
+  const spoken = record.kind === 'video' || record.kind === 'audio';
   if (details.transcript.trim()) {
-    doc.heading(h(4, 'Transcript of visible text'), size);
+    doc.heading(h(4, spoken ? 'Transcript of what was said' : 'Transcript of visible text'), size);
     doc.body(
-      'Drafted by on-device optical character recognition, then reviewed and corrected by the ' +
-        'reporter. It is a reading aid, not a substitute for the image itself.',
+      spoken
+        ? 'Written down by the reporter from what they heard. It is their own account of the words, ' +
+          'not an automated transcription, and not a substitute for the recording itself.'
+        : 'Drafted by on-device optical character recognition, then reviewed and corrected by the ' +
+          'reporter. It is a reading aid, not a substitute for the image itself.',
       { muted: true, size: 9 },
     );
     doc.gap(8);
@@ -339,7 +351,7 @@ async function renderItemSections(doc: Doc, record: EvidenceRecord, index: numbe
       doc.body(
         'The transcript contains characters this PDF’s font cannot render (for example Arabic ' +
           'or Urdu script). It is included verbatim, in UTF-8, in the accompanying transcript.txt ' +
-          'file. The original text is visible in the image below.',
+          `file. The original text is ${spoken ? 'audible in the recording' : 'visible in the image below'}.`,
         { muted: true },
       );
     }
@@ -361,6 +373,13 @@ async function renderItemSections(doc: Doc, record: EvidenceRecord, index: numbe
     } catch {
       doc.body('Frames could not be extracted from this recording in the browser.', { muted: true });
     }
+  } else if (record.kind === 'audio') {
+    doc.body(
+      'This item has no picture — a PDF cannot embed a playable recording, so the audio file ' +
+        'travels alongside this report instead. What was said is captured in the transcript above, ' +
+        'where the reporter has provided one.',
+      { muted: true, size: 9 },
+    );
   } else {
     const img = await loadImage(record.blob);
     if (img) {
@@ -443,9 +462,8 @@ export async function buildPackageReportPdf(records: EvidenceRecord[]): Promise<
   if (multi) {
     doc.heading('Items in this report', 13);
     records.forEach((r, i) => {
-      doc.body(
-        `${i + 1}.  ${r.kind === 'video' ? 'Video' : 'Photo'} — captured ${new Date(r.capturedAt).toLocaleString()}`,
-      );
+      const noun = r.kind === 'video' ? 'Video' : r.kind === 'audio' ? 'Audio' : 'Photo';
+      doc.body(`${i + 1}.  ${noun} — captured ${new Date(r.capturedAt).toLocaleString()}`);
     });
     doc.gap(10);
   }

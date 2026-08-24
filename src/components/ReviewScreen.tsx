@@ -76,7 +76,7 @@ export default function ReviewScreen({
       </div>
 
       <Button variant="secondary" block onClick={onAddAnother}>
-        Add another photo or video
+        Add another photo, video or recording
       </Button>
 
       <div className="space-y-2">
@@ -124,6 +124,9 @@ function ItemCard({
 
   const record = item.record;
   const isVideoRecord = item.kind === 'video';
+  const isAudioRecord = item.kind === 'audio';
+  const isImageRecord = item.kind === 'image';
+  const kindLabel = isVideoRecord ? 'video' : isAudioRecord ? 'audio' : 'photo';
   const rtl = OCR_LANGUAGES.find((l) => l.id === lang)?.rtl ?? false;
   const captureFacts = record?.captureMeta ? describeCaptureMeta(record.captureMeta) : [];
 
@@ -176,7 +179,7 @@ function ItemCard({
       <div className="flex items-center justify-between gap-3">
         {total > 1 ? (
           <p className="text-xs font-semibold uppercase tracking-wide text-ink-subtle">
-            Item {index + 1} of {total} — {isVideoRecord ? 'video' : 'photo'}
+            Item {index + 1} of {total} — {kindLabel}
           </p>
         ) : (
           <span />
@@ -201,7 +204,7 @@ function ItemCard({
             onClick={() => setRevealed((v) => !v)}
             aria-pressed={revealed}
           >
-            {revealed ? 'Hide' : isVideoRecord ? 'Show recording' : 'Show image'}
+            {revealed ? 'Hide' : isVideoRecord ? 'Show recording' : isAudioRecord ? 'Show player' : 'Show image'}
           </Button>
         </div>
         <div className="overflow-hidden rounded-xl border border-line bg-sunken">
@@ -219,6 +222,16 @@ function ItemCard({
                   : 'The recording you captured, currently blurred. Use the show button to reveal it.'
               }
             />
+          ) : isAudioRecord ? (
+            revealed ? (
+              // eslint-disable-next-line jsx-a11y/media-has-caption -- user's own recording; they supply the transcript below
+              <audio src={previewUrl} controls className="w-full p-4" aria-label="The audio you captured." />
+            ) : (
+              <div className="flex h-24 items-center justify-center gap-2 text-ink-subtle">
+                <AudioPlaceholderIcon />
+                <span className="text-sm">Audio recording — hidden until shown</span>
+              </div>
+            )
           ) : (
             <img
               src={previewUrl}
@@ -232,7 +245,7 @@ function ItemCard({
           )}
         </div>
 
-        {isVideoRecord || captureFacts.length > 0 ? (
+        {isVideoRecord || isAudioRecord || captureFacts.length > 0 ? (
           <dl className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
             {isVideoRecord ? (
               <>
@@ -249,6 +262,13 @@ function ItemCard({
                   </dd>
                 </div>
               </>
+            ) : isAudioRecord ? (
+              <div className="flex gap-1.5">
+                <dt className="text-ink-subtle">Length</dt>
+                <dd className="font-medium text-ink">
+                  {item.durationSeconds ? formatDuration(item.durationSeconds) : 'Not available'}
+                </dd>
+              </div>
             ) : null}
             {captureFacts.map((fact) => (
               <div key={fact.label} className="flex gap-1.5">
@@ -261,7 +281,9 @@ function ItemCard({
 
         {!revealed ? (
           <p className="text-xs text-ink-subtle">
-            Blurred on purpose. You don’t have to look at it again to finish this record.
+            {isAudioRecord
+              ? 'Hidden on purpose. You don’t have to listen to it again to finish this record.'
+              : 'Blurred on purpose. You don’t have to look at it again to finish this record.'}
           </p>
         ) : null}
       </div>
@@ -522,16 +544,16 @@ function ItemCard({
           <div className="space-y-4 border-t border-line pt-5">
             <div>
               <h2 className="font-display text-lg font-bold text-ink">
-                {isVideoRecord ? 'What was said' : 'Text in the image'}
+                {isVideoRecord || isAudioRecord ? 'What was said' : 'Text in the image'}
               </h2>
               <p className="mt-1 text-sm text-ink-muted">
-                {isVideoRecord
+                {isVideoRecord || isAudioRecord
                   ? 'Optional. Write down what you heard, as closely as you can remember. A reviewer can search text, but not a recording — and this is often what makes a report actionable.'
                   : 'Optional, and it runs entirely on your device. Useful because a reviewer can search text but not a picture.'}
               </p>
             </div>
 
-            {!isVideoRecord ? (
+            {isImageRecord ? (
               <>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <select
@@ -577,14 +599,14 @@ function ItemCard({
               htmlFor={id('transcript')}
               optional
               hint={
-                isVideoRecord
+                isVideoRecord || isAudioRecord
                   ? 'Quote it directly where you can. Note anything you are unsure of rather than guessing.'
                   : 'Correct anything the reader got wrong — this text goes into your report.'
               }
             >
               <textarea
                 id={id('transcript')}
-                dir={rtl && !isVideoRecord ? 'rtl' : undefined}
+                dir={rtl && isImageRecord ? 'rtl' : undefined}
                 className={`${inputClass} min-h-32 resize-y font-mono text-sm`}
                 value={record.details.transcript}
                 onChange={(e) => set('transcript', e.target.value)}
@@ -594,6 +616,16 @@ function ItemCard({
         </>
       ) : null}
     </Card>
+  );
+}
+
+function AudioPlaceholderIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-5" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
+      <path d="M12 17.5V21M9 21h6" />
+    </svg>
   );
 }
 

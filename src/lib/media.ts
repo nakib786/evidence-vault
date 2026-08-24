@@ -13,11 +13,23 @@
 export const MAX_VIDEO_SECONDS = 300;
 export const MAX_VIDEO_BYTES = 200 * 1024 * 1024;
 
+// Audio-only is allowed to run much longer than video for the same size cap — a spoken
+// account or a recorded call is a fraction of a video's bytes per second, so ten minutes of
+// audio is still a small file where ten minutes of video would not be.
+export const MAX_AUDIO_SECONDS = 600;
+export const MAX_AUDIO_BYTES = 50 * 1024 * 1024;
+
 export const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/avif'];
 export const ACCEPTED_VIDEO_TYPES = ['video/webm', 'video/mp4', 'video/quicktime', 'video/x-matroska', 'video/ogg'];
+export const ACCEPTED_AUDIO_TYPES = [
+  'audio/webm', 'audio/ogg', 'audio/mpeg', 'audio/mp4', 'audio/aac', 'audio/wav', 'audio/x-m4a', 'audio/x-wav',
+];
 
 export const isVideo = (mime: string): boolean =>
   mime.startsWith('video/') || ACCEPTED_VIDEO_TYPES.includes(mime);
+
+export const isAudio = (mime: string): boolean =>
+  mime.startsWith('audio/') || ACCEPTED_AUDIO_TYPES.includes(mime);
 
 /**
  * Pick a container/codec the browser will actually record.
@@ -38,6 +50,13 @@ export function pickRecordingMimeType(): string | undefined {
   return candidates.find((t) => MediaRecorder.isTypeSupported(t));
 }
 
+/** Same idea as `pickRecordingMimeType`, for a stream with no video track. */
+export function pickAudioRecordingMimeType(): string | undefined {
+  if (typeof MediaRecorder === 'undefined') return undefined;
+  const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4;codecs=mp4a.40.2', 'audio/mp4', 'audio/ogg'];
+  return candidates.find((t) => MediaRecorder.isTypeSupported(t));
+}
+
 export const extensionForMime = (mime: string): string => {
   const base = mime.split(';')[0].trim();
   return (
@@ -46,6 +65,8 @@ export const extensionForMime = (mime: string): string => {
       'image/gif': 'gif', 'image/avif': 'avif',
       'video/webm': 'webm', 'video/mp4': 'mp4', 'video/quicktime': 'mov',
       'video/x-matroska': 'mkv', 'video/ogg': 'ogv',
+      'audio/webm': 'weba', 'audio/ogg': 'oga', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a',
+      'audio/aac': 'aac', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/x-m4a': 'm4a',
     }[base] ?? 'bin'
   );
 };
@@ -102,6 +123,13 @@ export async function getVideoDuration(blob: Blob): Promise<number> {
     video.src = '';
   }
 }
+
+/**
+ * A `<video>` element loads and reports metadata for an audio-only source exactly as it
+ * does for one with picture, so there is no separate implementation needed here — only a
+ * name that doesn't lie to whoever's calling it for an audio blob.
+ */
+export const getAudioDuration = getVideoDuration;
 
 export interface VideoFrame {
   /** PNG data URL. */

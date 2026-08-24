@@ -1,9 +1,11 @@
 /**
  * Screen 1 — how the evidence gets in.
  *
- * Three routes, and the ordering is a judgement about what people actually need. Video
+ * Four routes, and the ordering is a judgement about what people actually need. Video
  * comes first: a lot of what this tool documents is spoken, not written, and a still
- * frame loses the words entirely. Photo second, import last.
+ * frame loses the words entirely. Photo second. Audio-only third — its own route (see
+ * `AudioCaptureScreen`) rather than a mode inside the camera view, for when pointing a
+ * camera isn't possible or isn't safe. Import last.
  *
  * Live capture is the stronger record either way — the bytes are hashed inside this app,
  * so there is no window in which a pre-edited or generated file could be substituted.
@@ -13,16 +15,22 @@
  * Neither camera nor microphone is touched until the user picks a live mode. The browser
  * permission prompt should never appear as a surprise on a screen about hate speech.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Callout, Card, Field, inputClass } from './ui';
+import AudioCaptureScreen from './AudioCaptureScreen';
+import { BatchStrip, MicIcon, MicLevelMeter, VideoIcon } from './CaptureShared';
 import type { CaptureItem, CaptureMeta, CaptureSource, MediaKind } from '../lib/types';
 import {
+  ACCEPTED_AUDIO_TYPES,
   ACCEPTED_IMAGE_TYPES,
   ACCEPTED_VIDEO_TYPES,
+  MAX_AUDIO_BYTES,
   MAX_VIDEO_BYTES,
   MAX_VIDEO_SECONDS,
   formatDuration,
+  getAudioDuration,
   getVideoDuration,
+  isAudio,
   isVideo,
   pickRecordingMimeType,
 } from '../lib/media';
@@ -78,7 +86,7 @@ interface Props {
   onDone: () => void;
 }
 
-type Mode = 'choose' | 'live';
+type Mode = 'choose' | 'live' | 'audio';
 
 export default function CaptureScreen({ items, onCaptured, onDone }: Props) {
   const [mode, setMode] = useState<Mode>('choose');
@@ -111,8 +119,20 @@ export default function CaptureScreen({ items, onCaptured, onDone }: Props) {
             setError(null);
             setMode('live');
           }}
+          onPickAudio={() => {
+            setError(null);
+            setMode('audio');
+          }}
           onFile={onCaptured}
           onError={setError}
+          onDone={onDone}
+        />
+      ) : mode === 'audio' ? (
+        <AudioCaptureScreen
+          items={items}
+          onCaptured={onCaptured}
+          onCancel={() => setMode('choose')}
+          onError={fail}
           onDone={onDone}
         />
       ) : (
@@ -131,27 +151,30 @@ export default function CaptureScreen({ items, onCaptured, onDone }: Props) {
 function ChooseMode({
   items,
   onPick,
+  onPickAudio,
   onFile,
   onError,
   onDone,
 }: {
   items: CaptureItem[];
   onPick: () => void;
+  onPickAudio: () => void;
   onFile: (payload: CapturePayload) => void;
   onError: (message: string) => void;
   onDone: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const accepted = [...ACCEPTED_IMAGE_TYPES, ...ACCEPTED_VIDEO_TYPES];
+  const accepted = [...ACCEPTED_IMAGE_TYPES, ...ACCEPTED_VIDEO_TYPES, ...ACCEPTED_AUDIO_TYPES];
 
   const handleFile = async (file: File | undefined): Promise<void> => {
     if (!file) return;
     const video = isVideo(file.type);
-    if (!accepted.includes(file.type) && !video) {
-      onError(`That file is a ${file.type || 'unknown type'}. Please choose an image or a video.`);
+    const audio = !video && isAudio(file.type);
+    if (!accepted.includes(file.type) && !video && !audio) {
+      onError(`That file is a ${file.type || 'unknown type'}. Please choose an image, a video, or an audio file.`);
       return;
     }
-    const cap = video ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
+    const cap = video ? MAX_VIDEO_BYTES : audio ? MAX_AUDIO_BYTES : MAX_IMAGE_BYTES;
     if (file.size > cap) {
       onError(
         `That file is ${(file.size / 1024 / 1024).toFixed(1)} MB. The limit is ${cap / 1024 / 1024} MB.`,
@@ -159,22 +182,28 @@ function ChooseMode({
       return;
     }
 
-    if (!video) {
+    if (!video && !audio) {
       onFile({ blob: file, source: 'upload', kind: 'image' });
       return;
     }
 
     // Read the duration here rather than trusting the file to carry it. A live recording
     // knows how long it ran; an imported one does not, and reporting every uploaded video
-    // as "0:00" in the record would be quietly wrong.
+    // or recording as "0:00" in the record would be quietly wrong.
     let durationSeconds: number | undefined;
     try {
-      const seconds = await getVideoDuration(file);
+      const seconds = await (video ? getVideoDuration(file) : getAudioDuration(file));
       if (Number.isFinite(seconds) && seconds > 0) durationSeconds = seconds;
     } catch {
       /* duration stays undefined; the report says "not available" rather than "0:00" */
     }
-    onFile({ blob: file, source: 'upload', kind: 'video', durationSeconds });
+    onFile({
+      blob: file,
+      source: 'upload',
+      kind: video ? 'video' : 'audio',
+      durationSeconds,
+      hasAudio: audio ? true : undefined,
+    });
   };
 
   return (
@@ -224,14 +253,33 @@ function ChooseMode({
         </p>
       </Card>
 
+      <Card className="space-y-3" data-tour="capture-audio">
+        <div className="flex items-start gap-3">
+          <MicIcon />
+          <div className="flex-1">
+            <h2 className="font-display text-lg font-bold text-ink">
+              {items.length > 0 ? 'Record another audio clip' : 'Record audio only'}
+            </h2>
+            <p className="mt-1 text-sm text-ink-muted">
+              For when pointing a camera isn’t possible or isn’t safe — a phone call on speaker, a
+              voicemail, or someone talking near you. Only the microphone is used, never the camera,
+              and it’s fingerprinted the instant you stop recording.
+            </p>
+          </div>
+        </div>
+        <Button variant="secondary" block onClick={onPickAudio}>
+          {items.length > 0 ? 'Add another recording' : 'Open microphone'}
+        </Button>
+      </Card>
+
       <Card className="space-y-3" data-tour="capture-upload">
         <div className="flex items-start gap-3">
           <FileIcon />
           <div className="flex-1">
             <h2 className="font-display text-lg font-bold text-ink">Use a file you already have</h2>
             <p className="mt-1 text-sm text-ink-muted">
-              A screenshot or a video from your device. Faster if the moment has passed — the record
-              will note that the file existed before this app saw it.
+              A screenshot, a video, or an audio file from your device. Faster if the moment has
+              passed — the record will note that the file existed before this app saw it.
             </p>
           </div>
         </div>
@@ -1016,59 +1064,6 @@ function LiveCapture({
   );
 }
 
-/**
- * A row of small thumbnails for what's been captured this session — shown on both the
- * chooser and the live camera view, so a batch of shots stays visible while more are taken.
- * Deliberately read-only here: removing an item happens on the review screen next, where
- * its full context (and every other item) is already on screen at once.
- */
-function BatchStrip({ items }: { items: CaptureItem[] }) {
-  return (
-    <div
-      className="flex gap-2 overflow-x-auto pb-1"
-      role="list"
-      aria-label={`${items.length} item${items.length === 1 ? '' : 's'} captured this session`}
-    >
-      {items.map((item, i) => (
-        <BatchThumb key={item.id} item={item} index={i} />
-      ))}
-    </div>
-  );
-}
-
-function BatchThumb({ item, index }: { item: CaptureItem; index: number }) {
-  const url = useMemo(() => URL.createObjectURL(item.blob), [item.blob]);
-  useEffect(() => () => URL.revokeObjectURL(url), [url]);
-
-  const statusLabel =
-    item.status === 'securing' ? 'fingerprinting' : item.status === 'error' ? 'could not be secured' : 'ready';
-
-  return (
-    <div
-      role="listitem"
-      aria-label={`Item ${index + 1}, ${item.kind === 'video' ? 'video' : 'photo'}, ${statusLabel}`}
-      className="relative size-14 shrink-0 overflow-hidden rounded-lg border border-line bg-sunken"
-    >
-      {item.kind === 'video' ? (
-        <div className="flex size-full items-center justify-center bg-ink text-white">
-          <VideoIcon compact />
-        </div>
-      ) : (
-        <img src={url} alt="" className="size-full object-cover" />
-      )}
-      {item.status === 'securing' ? (
-        <span className="absolute inset-0 flex items-center justify-center bg-ink/45">
-          <span className="size-2 animate-pulse rounded-full bg-white" aria-hidden="true" />
-        </span>
-      ) : item.status === 'error' ? (
-        <span className="absolute inset-0 flex items-center justify-center bg-danger/60">
-          <span className="text-xs font-bold text-white">!</span>
-        </span>
-      ) : null}
-    </div>
-  );
-}
-
 function BatchIcon() {
   return (
     <svg
@@ -1085,22 +1080,6 @@ function BatchIcon() {
       <rect x="14" y="3" width="7" height="7" rx="1.5" />
       <rect x="3" y="14" width="7" height="7" rx="1.5" />
       <rect x="14" y="14" width="7" height="7" rx="1.5" />
-    </svg>
-  );
-}
-
-function VideoIcon({ compact = false }: { compact?: boolean }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      className={compact ? 'size-4 shrink-0' : 'mt-0.5 size-6 shrink-0 text-accent'}
-      aria-hidden="true"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-    >
-      <rect x="3" y="6" width="12.5" height="12" rx="2.5" />
-      <path d="M15.5 10.5 20.2 7.8a.6.6 0 0 1 .9.5v7.4a.6.6 0 0 1-.9.5l-4.7-2.7z" />
     </svg>
   );
 }
@@ -1149,67 +1128,6 @@ function LiveDot() {
     <span className="relative flex size-2" aria-hidden="true">
       <span className="absolute inline-flex size-full animate-ping rounded-full bg-affirm opacity-75" />
       <span className="relative inline-flex size-2 rounded-full bg-affirm" />
-    </span>
-  );
-}
-
-/**
- * A live microphone-level meter. Reads the input via an AnalyserNode and drives bar heights
- * straight through refs on every animation frame — routing that through React state would
- * mean a re-render at up to 60fps for a purely decorative meter.
- */
-function MicLevelMeter({ stream }: { stream: MediaStream | null }) {
-  const barsRef = useRef<(HTMLSpanElement | null)[]>([]);
-
-  useEffect(() => {
-    if (!stream || stream.getAudioTracks().length === 0) return;
-    const AudioCtxCtor =
-      window.AudioContext ??
-      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioCtxCtor) return;
-
-    const ctx = new AudioCtxCtor();
-    const source = ctx.createMediaStreamSource(stream);
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = 64;
-    analyser.smoothingTimeConstant = 0.8;
-    source.connect(analyser);
-    const data = new Uint8Array(analyser.frequencyBinCount);
-    const bars = barsRef.current;
-    let raf = 0;
-
-    const tick = () => {
-      analyser.getByteFrequencyData(data);
-      bars.forEach((bar, i) => {
-        if (!bar) return;
-        const idx = 1 + Math.floor((i / bars.length) * (data.length - 1) * 0.7);
-        const level = data[idx] / 255;
-        bar.style.transform = `scaleY(${Math.max(0.15, Math.min(1, level * 1.7))})`;
-      });
-      raf = requestAnimationFrame(tick);
-    };
-    tick();
-
-    return () => {
-      cancelAnimationFrame(raf);
-      source.disconnect();
-      analyser.disconnect();
-      void ctx.close();
-    };
-  }, [stream]);
-
-  return (
-    <span className="flex h-3 items-end gap-[2px]" aria-hidden="true">
-      {[0, 1, 2, 3].map((i) => (
-        <span
-          key={i}
-          ref={(el) => {
-            barsRef.current[i] = el;
-          }}
-          className="h-full w-[2.5px] origin-bottom rounded-full bg-white/90 transition-transform duration-75 ease-out"
-          style={{ transform: 'scaleY(0.15)' }}
-        />
-      ))}
     </span>
   );
 }

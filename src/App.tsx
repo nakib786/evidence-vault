@@ -14,11 +14,13 @@ import HandoverScreen from './components/HandoverScreen';
 import ExportScreen from './components/ExportScreen';
 import VaultScreen from './components/VaultScreen';
 import VaultRecordScreen from './components/VaultRecordScreen';
+import VaultPackageScreen from './components/VaultPackageScreen';
 import VerifyScreen from './components/VerifyScreen';
 import { Button, StepIndicator } from './components/ui';
 import Modal from './components/Modal';
 import InstallNudge from './components/InstallNudge';
 import LiveChatBubble from './components/LiveChatBubble';
+import QuickExitButton from './components/QuickExitButton';
 import NearbyResourcesSection from './components/NearbyResourcesSection';
 import { useTour } from './components/useTour';
 import { useVault } from './components/useVault';
@@ -27,6 +29,7 @@ import { IntroModal, TourModal } from './components/WelcomeModals';
 import { FaqModal } from './components/FaqModal';
 import { isIntroHidden, setIntroHidden, type TourSection } from './lib/tour';
 import { buildDemoCapture } from './lib/demoCapture';
+import { entriesForPackage } from './lib/vaultGroups';
 import { secureBlob } from './lib/secure';
 import { DEFAULT_DEMO_PIN } from './lib/vaultCrypto';
 import {
@@ -97,6 +100,7 @@ export default function App() {
         const { digest, digestHex, proof } = await secureBlob(payload.blob);
         const record: EvidenceRecord = {
           id,
+          packageId,
           blob: payload.blob,
           mimeType: payload.blob.type || 'application/octet-stream',
           byteLength: payload.blob.size,
@@ -124,7 +128,7 @@ export default function App() {
         );
       }
     })();
-  }, []);
+  }, [packageId]);
 
   // The explicit "done capturing, review it" action — called once, after however many items
   // were taken in this batch, rather than automatically after each one.
@@ -159,7 +163,30 @@ export default function App() {
   const vault = useVault();
   const [view, setView] = useState<'flow' | 'vault' | 'verify'>('flow');
   const [vaultEntryId, setVaultEntryId] = useState<string | null>(null);
+  // Set when browsing a multi-item report as a group (see `lib/vaultGroups.ts`). Opening a
+  // single item from inside it leaves this set, so its own "Back" returns to the report
+  // rather than the flat list — see the `vaultEntryId` branch below.
+  const [vaultPackageId, setVaultPackageId] = useState<string | null>(null);
   const [confirmHomeOpen, setConfirmHomeOpen] = useState(false);
+
+  // Every exit from the vault section re-locks it, from wherever that exit happens —
+  // the top nav's Vault toggle, Home, jumping to Verify from inside a record, the idle
+  // timeout, all of it. One effect keyed on `view` catches every path rather than each
+  // exit having to remember to lock on its own, so re-entering the vault always means
+  // typing the PIN again, not picking up a session left open in memory.
+  const prevViewRef = useRef(view);
+  const vaultLockRef = useRef(vault.lock);
+  useEffect(() => {
+    vaultLockRef.current = vault.lock;
+  }, [vault.lock]);
+  useEffect(() => {
+    if (prevViewRef.current === 'vault' && view !== 'vault') {
+      vaultLockRef.current();
+      setVaultEntryId(null);
+      setVaultPackageId(null);
+    }
+    prevViewRef.current = view;
+  }, [view]);
 
   // What the tour should be narrating right now. The vault is a separate `view`, not part
   // of the `step` machine, and "locked" / "empty" / "has records" are each a different set
@@ -226,6 +253,7 @@ export default function App() {
         break;
       case 'export':
         setVaultEntryId(null);
+        setVaultPackageId(null);
         setView('vault');
         break;
       case 'vault-locked':
@@ -251,6 +279,7 @@ export default function App() {
         reset();
         setView('flow');
         setVaultEntryId(null);
+        setVaultPackageId(null);
         stopRef.current();
         break;
     }
@@ -264,6 +293,7 @@ export default function App() {
   const closeVault = useCallback(() => {
     setView('flow');
     setVaultEntryId(null);
+    setVaultPackageId(null);
   }, []);
 
   // Captured items live only in memory until they're saved to the vault or exported (see
@@ -277,6 +307,7 @@ export default function App() {
     reset();
     setView('flow');
     setVaultEntryId(null);
+    setVaultPackageId(null);
     setConfirmHomeOpen(false);
   }
 
@@ -316,78 +347,83 @@ export default function App() {
       </a>
 
       <div className="mx-auto max-w-xl px-4 pb-16 pt-6 sm:px-6">
-        <header className="mb-6 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5">
-            <EvidenceMark />
-            <span className="font-display text-base font-bold tracking-tight text-ink">
-              Evidence Vault
-            </span>
+        <header className="mb-6 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <EvidenceMark />
+              <span className="font-display text-base font-bold tracking-tight text-ink">
+                Evidence Vault
+              </span>
+            </div>
+            <nav
+              aria-label="Main"
+              className="flex items-center gap-0.5 rounded-full border border-line bg-surface p-1
+                shadow-[0_1px_2px_rgb(15_23_42_/_0.04),0_8px_20px_-14px_rgb(15_23_42_/_0.2)]"
+            >
+              <NavPill label="Home" active={view === 'flow'} onClick={handleHomeClick}>
+                <HomeGlyph />
+              </NavPill>
+              <NavPill
+                label="Vault"
+                active={view === 'vault'}
+                onClick={() => {
+                  if (view === 'vault') {
+                    setView('flow');
+                  } else {
+                    setVaultEntryId(null);
+                    setVaultPackageId(null);
+                    setView('vault');
+                  }
+                }}
+              >
+                <VaultGlyph />
+              </NavPill>
+              <NavPill
+                label="Verify"
+                active={view === 'verify'}
+                onClick={() => {
+                  if (view === 'verify') {
+                    setView('flow');
+                  } else {
+                    if (tour.active) tour.stop();
+                    setView('verify');
+                  }
+                }}
+              >
+                <VerifyGlyph />
+              </NavPill>
+            </nav>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1.5">
-            <button
-              type="button"
-              onClick={handleHomeClick}
-              className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-ink-muted underline underline-offset-2 hover:bg-sunken hover:text-ink"
-            >
-              Home
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (view === 'vault') {
-                  setView('flow');
-                } else {
-                  setVaultEntryId(null);
-                  setView('vault');
-                }
-              }}
-              className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-ink-muted underline underline-offset-2 hover:bg-sunken hover:text-ink"
-            >
-              {view === 'vault' ? 'Back to app' : 'Vault'}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (view === 'verify') {
-                  setView('flow');
-                } else {
-                  if (tour.active) tour.stop();
-                  setView('verify');
-                }
-              }}
-              className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-ink-muted underline underline-offset-2 hover:bg-sunken hover:text-ink"
-            >
-              {view === 'verify' ? 'Back to app' : 'Verify'}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (tour.active) tour.stop();
-                setWelcome('intro');
-              }}
-              className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-ink-muted underline underline-offset-2 hover:bg-sunken hover:text-ink"
-            >
-              What is this?
-            </button>
-            <button
-              type="button"
-              onClick={() => (tour.active ? tour.stop() : tour.start())}
-              className="ev-tour-toggle rounded-lg px-2.5 py-1.5 text-xs font-semibold text-ink-muted underline underline-offset-2 hover:bg-sunken hover:text-ink"
-            >
-              {tour.active ? 'End tour' : 'How it works'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setFaqOpen(true)}
-              className="rounded-lg px-2.5 py-1.5 text-xs font-semibold text-ink-muted underline underline-offset-2 hover:bg-sunken hover:text-ink"
-            >
-              FAQ
-            </button>
-            <p className="w-full text-right text-xs leading-tight text-ink-subtle sm:w-auto">
-              Everything stays
-              <br />
-              on your device
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+            <p className="text-xs leading-tight text-ink-subtle">
+              Everything stays on your device
             </p>
+            <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
+              <button
+                type="button"
+                onClick={() => {
+                  if (tour.active) tour.stop();
+                  setWelcome('intro');
+                }}
+                className="rounded-lg px-2 py-1 text-xs font-semibold text-ink-subtle underline underline-offset-2 hover:bg-sunken hover:text-ink"
+              >
+                What is this?
+              </button>
+              <button
+                type="button"
+                onClick={() => (tour.active ? tour.stop() : tour.start())}
+                className="ev-tour-toggle rounded-lg px-2 py-1 text-xs font-semibold text-ink-subtle underline underline-offset-2 hover:bg-sunken hover:text-ink"
+              >
+                {tour.active ? 'End tour' : 'How it works'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setFaqOpen(true)}
+                className="rounded-lg px-2 py-1 text-xs font-semibold text-ink-subtle underline underline-offset-2 hover:bg-sunken hover:text-ink"
+              >
+                FAQ
+              </button>
+            </div>
           </div>
         </header>
 
@@ -462,8 +498,17 @@ export default function App() {
                   />
                 ) : null;
               })()
+            ) : vaultPackageId ? (
+              <VaultPackageScreen
+                packageId={vaultPackageId}
+                entries={entriesForPackage(vault.entries, vaultPackageId)}
+                vault={vault}
+                onBack={() => setVaultPackageId(null)}
+                onOpenItem={setVaultEntryId}
+                onDissolved={() => setVaultPackageId(null)}
+              />
             ) : (
-              <VaultScreen vault={vault} onClose={closeVault} onOpen={setVaultEntryId} />
+              <VaultScreen vault={vault} onClose={closeVault} onOpen={setVaultEntryId} onOpenPackage={setVaultPackageId} />
             )
           ) : (
             <>
@@ -530,7 +575,11 @@ export default function App() {
             is in immediate danger, contact your local emergency services.
           </p>
           <div className="mt-4 border-t border-line pt-3">
-            <p>Planned next: native apps for iOS and Android, plus browser extensions for the major browsers.</p>
+            <p>
+              Planned next: a screen/tab recording capture mode (for a scrolling comment thread or a
+              livestream, without pointing a camera at a screen), native apps for iOS and Android, and
+              browser extensions for the major browsers.
+            </p>
             <ul className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
               <li className="inline-flex items-center gap-1.5">
                 <AppleGlyph /> iOS
@@ -565,7 +614,69 @@ export default function App() {
       </div>
 
       <LiveChatBubble suppressed={welcome !== null || tour.active || confirmHomeOpen || faqOpen} />
+      <QuickExitButton />
     </div>
+  );
+}
+
+/**
+ * One button in the primary nav — an app-style tab rather than the underlined text links
+ * this replaced, since the header is the first thing that has to read as "an app" rather
+ * than "a web page" once this ships as one. `active` marks the section currently open;
+ * tapping the active pill is how each section already closed itself (a plain view toggle),
+ * so that behavior carries over unchanged — only the visual language does not.
+ */
+function NavPill({
+  label,
+  active,
+  onClick,
+  children,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={active ? 'page' : undefined}
+      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-semibold transition-colors ${
+        active ? 'bg-accent text-white' : 'text-ink-muted hover:bg-sunken hover:text-ink'
+      }`}
+    >
+      {children}
+      {label}
+    </button>
+  );
+}
+
+function HomeGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-4 shrink-0" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 11.5 12 4l8 7.5" />
+      <path d="M6 10.2V19a1 1 0 0 0 1 1h3v-6h4v6h3a1 1 0 0 0 1-1v-8.8" />
+    </svg>
+  );
+}
+
+function VaultGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-4 shrink-0" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="5" y="11" width="14" height="9" rx="2" />
+      <path d="M8 11V7.5a4 4 0 0 1 8 0V11" />
+      <circle cx="12" cy="15.2" r="1.1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function VerifyGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-4 shrink-0" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3.5 19 6v6c0 4.5-3 7.5-7 8.5-4-1-7-4-7-8.5V6z" />
+      <path d="m9 12 2 2 4-4.2" />
+    </svg>
   );
 }
 

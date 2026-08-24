@@ -128,8 +128,10 @@ export async function buildCertificatePdf({
 
   // ---- 2. The record ------------------------------------------------------
   text('2. The electronic record', { bold: true, size: 12.5, gapAfter: 4 });
+  const recordNoun =
+    record.kind === 'video' ? 'video recording' : record.kind === 'audio' ? 'audio recording' : 'digital image';
   text(
-    `This certificate concerns a single ${record.kind === 'video' ? 'video recording' : 'digital image'} ` +
+    `This certificate concerns a single ${recordNoun} ` +
       `saved as "${evidenceFilename}"` +
       (proofFilename ? `, accompanied by a timestamp proof file saved as "${proofFilename}"` : '') +
       '.',
@@ -144,19 +146,21 @@ export async function buildCertificatePdf({
     ['Captured', `${new Date(record.capturedAt).toLocaleString()} (${record.timeZone})`],
     ['Captured (ISO 8601)', record.capturedAt],
   ];
-  if (record.kind === 'video') {
+  if (record.kind === 'video' || record.kind === 'audio') {
     rows.push([
       'Duration',
       record.durationSeconds ? formatDuration(record.durationSeconds) : 'Not available',
     ]);
-    rows.push([
-      'Audio',
-      record.source === 'upload'
-        ? 'As present in the original file'
-        : record.hasAudio
-          ? 'Recorded'
-          : 'Not recorded',
-    ]);
+    if (record.kind === 'video') {
+      rows.push([
+        'Audio',
+        record.source === 'upload'
+          ? 'As present in the original file'
+          : record.hasAudio
+            ? 'Recorded'
+            : 'Not recorded',
+      ]);
+    }
   }
   rows.push([
     'Method of capture',
@@ -241,7 +245,7 @@ export async function buildCertificatePdf({
   text('I certify that:', { gapAfter: 4 });
   text(
     '(a)  The file described in paragraph 2 is a true and unaltered copy of the ' +
-      `${record.kind === 'video' ? 'recording' : 'image'} as it was captured on the date and time stated;\n\n` +
+      `${record.kind === 'image' ? 'image' : 'recording'} as it was captured on the date and time stated;\n\n` +
       '(b)  The hash value stated in paragraph 3 was produced from that file by the process ' +
       'described, and I have compared it to the value recorded in the accompanying report and ' +
       'found them identical;\n\n' +

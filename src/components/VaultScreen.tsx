@@ -4,11 +4,14 @@
  * from memory — closing the vault re-locks it, on the same logic as the rest of the app:
  * nothing sensitive should outlive the moment you're actually looking at it.
  */
-import { useEffect, useId, useRef, useState } from 'react';
-import { Button, Callout, Card, inputClass } from './ui';
+import { useEffect, useRef, useState } from 'react';
+import { Button, Callout, Card } from './ui';
+import { PinInput } from './PinInput';
 import { describeProofStatus } from '../lib/vaultStatus';
 import { DEFAULT_DEMO_PIN, DEFAULT_DURESS_PIN } from '../lib/vaultCrypto';
 import { labelFor, CATEGORIES } from '../lib/taxonomy';
+import { groupVaultEntries } from '../lib/vaultGroups';
+import { summarizeVault, type TallyRow, type VaultInsights } from '../lib/vaultInsights';
 import type { VaultRecord } from '../lib/types';
 import type { useVault } from './useVault';
 
@@ -51,13 +54,13 @@ interface Props {
   vault: ReturnType<typeof useVault>;
   onClose: () => void;
   onOpen: (id: string) => void;
+  onOpenPackage: (packageId: string) => void;
 }
 
-export default function VaultScreen({ vault, onClose, onOpen }: Props) {
+export default function VaultScreen({ vault, onClose, onOpen, onOpenPackage }: Props) {
   const [pin, setPin] = useState(DEFAULT_DEMO_PIN);
   const [error, setError] = useState<string | null>(null);
   const [resetConfirm, setResetConfirm] = useState(false);
-  const id = useId();
 
   useEffect(() => {
     if (!vault.unlocked) {
@@ -71,10 +74,16 @@ export default function VaultScreen({ vault, onClose, onOpen }: Props) {
     onClose();
   });
 
-  const handleUnlock = async (): Promise<void> => {
+  // Takes an explicit PIN rather than always reading state, so `PinInput`'s `onComplete` —
+  // which can fire on Enter before a state update from the same keystroke has settled —
+  // hands over the value it just produced instead of racing that update.
+  const handleUnlock = async (pinValue: string = pin): Promise<void> => {
     setError(null);
-    const ok = await vault.unlock(pin);
-    if (!ok) setError('That PIN doesn’t match. Try again, or reset the demo vault below.');
+    const ok = await vault.unlock(pinValue);
+    if (!ok) {
+      setError('That PIN doesn’t match. Try again, or reset the demo vault below.');
+      setPin('');
+    }
   };
 
   if (!vault.unlocked) {
@@ -110,27 +119,18 @@ export default function VaultScreen({ vault, onClose, onOpen }: Props) {
         ) : null}
 
         <Card as="div" className="space-y-4" data-tour="vault-unlock">
-          <div className="space-y-1.5">
-            <label htmlFor={id} className="block font-display text-sm font-semibold text-ink">
-              Vault PIN
-            </label>
-            <input
-              id={id}
-              type="text"
-              inputMode="numeric"
-              autoComplete="off"
-              className="w-full rounded-xl border border-line-strong bg-surface px-4 py-3 text-base text-ink focus:border-accent focus:outline-none"
-              value={pin}
-              onChange={(e) => setPin(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void handleUnlock();
-              }}
-            />
-          </div>
+          <PinInput
+            label="Vault PIN"
+            value={pin}
+            onChange={setPin}
+            onComplete={(value) => void handleUnlock(value)}
+            disabled={vault.loading}
+            autoFocus
+          />
 
           {error ? <Callout tone="danger" title="Wrong PIN">{error}</Callout> : null}
 
-          <Button block onClick={handleUnlock} disabled={vault.loading || !pin}>
+          <Button block onClick={() => void handleUnlock()} disabled={vault.loading || pin.length !== 4}>
             {vault.loading ? 'Checking…' : 'Unlock'}
           </Button>
         </Card>
@@ -174,6 +174,8 @@ export default function VaultScreen({ vault, onClose, onOpen }: Props) {
     );
   }
 
+  const insights = summarizeVault(vault.entries);
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
@@ -209,10 +211,15 @@ export default function VaultScreen({ vault, onClose, onOpen }: Props) {
         </Card>
       ) : (
         <>
+          {insights ? <VaultSummary insights={insights} /> : null}
           <div className="space-y-3" data-tour="vault-entries">
-            {vault.entries.map((entry) => (
-              <VaultCard key={entry.record.id} entry={entry} onOpen={() => onOpen(entry.record.id)} />
-            ))}
+            {groupVaultEntries(vault.entries).map((row) =>
+              row.kind === 'package' ? (
+                <VaultPackageCard key={row.packageId} entries={row.entries} onOpen={() => onOpenPackage(row.packageId)} />
+              ) : (
+                <VaultCard key={row.entry.record.id} entry={row.entry} onOpen={() => onOpen(row.entry.record.id)} />
+              ),
+            )}
           </div>
           <Button variant="quiet" block onClick={() => void vault.loadDemo()}>
             {vault.entries.some((e) => e.isDemo) ? 'Reload demo records' : 'Add demo records'}
@@ -239,23 +246,27 @@ function DuressPinSettings({ vault }: { vault: ReturnType<typeof useVault> }) {
   const [error, setError] = useState<string | null>(null);
   const [savedNote, setSavedNote] = useState<string | null>(null);
   const [removeConfirm, setRemoveConfirm] = useState(false);
-  const pin1Id = useId();
-  const pin2Id = useId();
 
   useEffect(() => {
     void vault.checkDuressConfig();
   }, [vault]);
 
-  const handleSave = async (): Promise<void> => {
+  // Takes explicit values rather than always reading state, for the same reason
+  // `VaultScreen`'s own `handleUnlock` does — see its comment.
+  const handleSave = async (pin1Value: string = pin1, pin2Value: string = pin2): Promise<void> => {
     setError(null);
     setSavedNote(null);
-    if (!pin1 || pin1 !== pin2) {
+    if (!pin1Value || pin1Value !== pin2Value) {
       setError('Enter the same PIN twice.');
+      setPin1('');
+      setPin2('');
       return;
     }
-    const ok = await vault.setDuressPin(pin1);
+    const ok = await vault.setDuressPin(pin1Value);
     if (!ok) {
       setError('That matches your real PIN — a duress PIN has to be different to be reachable at all.');
+      setPin1('');
+      setPin2('');
       return;
     }
     setPin1('');
@@ -312,42 +323,22 @@ function DuressPinSettings({ vault }: { vault: ReturnType<typeof useVault> }) {
             moment, not full deniability against someone who examines the device afterward.
           </Callout>
 
-          <div className="space-y-1.5">
-            <label htmlFor={pin1Id} className="block font-display text-sm font-semibold text-ink">
-              New duress PIN
-            </label>
-            <input
-              id={pin1Id}
-              type="text"
-              inputMode="numeric"
-              autoComplete="off"
-              className={inputClass}
-              value={pin1}
-              onChange={(e) => setPin1(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label htmlFor={pin2Id} className="block font-display text-sm font-semibold text-ink">
-              Confirm
-            </label>
-            <input
-              id={pin2Id}
-              type="text"
-              inputMode="numeric"
-              autoComplete="off"
-              className={inputClass}
-              value={pin2}
-              onChange={(e) => setPin2(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void handleSave();
-              }}
-            />
-          </div>
+          <PinInput label="New duress PIN" value={pin1} onChange={setPin1} />
+          <PinInput
+            label="Confirm"
+            value={pin2}
+            onChange={setPin2}
+            onComplete={(value) => void handleSave(pin1, value)}
+          />
 
           {error ? <Callout tone="danger" title="Can't save that">{error}</Callout> : null}
 
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Button className="sm:flex-1" onClick={handleSave} disabled={!pin1 || !pin2}>
+            <Button
+              className="sm:flex-1"
+              onClick={() => void handleSave()}
+              disabled={pin1.length !== 4 || pin2.length !== 4}
+            >
               Save duress PIN
             </Button>
             {vault.hasDuressConfig ? (
@@ -415,7 +406,7 @@ function VaultCard({ entry, onOpen }: { entry: VaultRecord; onOpen: () => void }
           <img src={thumb} alt="" className="evidence-blur size-full object-cover" />
         ) : (
           <div className="flex size-full items-center justify-center text-ink-subtle">
-            <VideoGlyph />
+            {record.kind === 'audio' ? <MicGlyph /> : <VideoGlyph />}
           </div>
         )}
       </div>
@@ -448,11 +439,209 @@ function VaultCard({ entry, onOpen }: { entry: VaultRecord; onOpen: () => void }
   );
 }
 
+/**
+ * One saved report made of several items (a burst, or a batch taken back-to-back) — a
+ * stack of thumbnails standing in for the whole group, rather than one row per item. See
+ * `lib/vaultGroups.ts` for how entries end up grouped this way.
+ */
+function VaultPackageCard({ entries, onOpen }: { entries: VaultRecord[]; onOpen: () => void }) {
+  const newest = entries[entries.length - 1];
+  const savedAt = entries.reduce((latest, e) => (e.savedAt > latest ? e.savedAt : latest), entries[0].savedAt);
+  const isDemo = entries.some((e) => e.isDemo);
+  const worstStatus = entries
+    .map((e) => describeProofStatus(e))
+    .sort((a, b) => {
+      const rank = { caution: 0, info: 1, affirm: 2 } as const;
+      return rank[a.tone] - rank[b.tone];
+    })[0];
+
+  const toneClass = {
+    affirm: 'bg-affirm-soft text-affirm',
+    caution: 'bg-caution-soft text-caution',
+    info: 'bg-sunken text-ink-muted',
+  }[worstStatus.tone];
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex w-full items-center gap-4 rounded-2xl border border-line bg-surface p-4 text-left transition-colors hover:bg-sunken focus-visible:bg-sunken"
+    >
+      <ThumbStack entries={entries.slice(0, 3)} />
+
+      <div className="min-w-0 flex-1 space-y-1">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <p className="font-display text-sm font-bold text-ink">
+            Report &middot; {entries.length} items
+          </p>
+          {isDemo ? (
+            <span className="rounded-full bg-sunken px-2 py-0.5 text-[11px] font-semibold text-ink-subtle">
+              Demo
+            </span>
+          ) : null}
+        </div>
+        <p className="truncate text-sm text-ink-muted">
+          {newest.record.details.platform ||
+            (newest.record.details.category ? labelFor(CATEGORIES, newest.record.details.category) : 'No details added')}
+        </p>
+        <span className={`inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${toneClass}`}>
+          {entries.every((e) => describeProofStatus(e).tone === 'affirm') ? 'All confirmed' : worstStatus.label}
+        </span>
+      </div>
+
+      <p className="shrink-0 text-xs text-ink-subtle">
+        Saved {new Date(savedAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}
+      </p>
+    </button>
+  );
+}
+
+/** Up to three overlapping thumbnails, back-to-front, standing in for a whole report. */
+function ThumbStack({ entries }: { entries: VaultRecord[] }) {
+  return (
+    <div className="relative size-16 shrink-0" aria-hidden="true">
+      {entries.map((entry, i) => (
+        <StackThumb key={entry.record.id} entry={entry} depth={i} of={entries.length} />
+      ))}
+    </div>
+  );
+}
+
+function StackThumb({ entry, depth, of }: { entry: VaultRecord; depth: number; of: number }) {
+  const { record } = entry;
+  const [thumb, setThumb] = useState<string | null>(null);
+  useEffect(() => {
+    if (record.kind !== 'image') return;
+    const url = URL.createObjectURL(record.blob);
+    setThumb(url);
+    return () => URL.revokeObjectURL(url);
+  }, [record]);
+
+  // Back-most thumbnail first so later (front) ones paint on top; each step in from the
+  // back shrinks and offsets slightly, the same idea as a stack of photos on a desk.
+  const fromBack = of - 1 - depth;
+  const offset = fromBack * 3;
+  const scale = 1 - fromBack * 0.06;
+
+  return (
+    <div
+      className="absolute inset-0 overflow-hidden rounded-xl border border-line bg-sunken shadow-sm"
+      style={{
+        transform: `translate(${offset}px, ${-offset}px) scale(${scale})`,
+        zIndex: depth,
+      }}
+    >
+      {thumb ? (
+        <img src={thumb} alt="" className="evidence-blur size-full object-cover" />
+      ) : (
+        <div className="flex size-full items-center justify-center text-ink-subtle">
+          <VideoGlyph />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * "Patterns across your records" — see `lib/vaultInsights.ts`'s file comment for why this
+ * exists. Shown above the entry list itself, since it's a summary of what follows rather
+ * than something to dig for.
+ */
+function VaultSummary({ insights }: { insights: VaultInsights }) {
+  const { total, demoCount, byCategory, bySeverity, byPlatform, confirmed, pending, noProof, earliestCapturedAt, latestCapturedAt } =
+    insights;
+  const multi = total > 1;
+  const sameDay = new Date(earliestCapturedAt).toDateString() === new Date(latestCapturedAt).toDateString();
+  const dateStyle = { dateStyle: 'medium' } as const;
+
+  return (
+    <Card as="div" className="space-y-4" data-tour="vault-summary">
+      <div>
+        <h2 className="font-display text-sm font-bold text-ink">
+          {multi ? `Patterns across your ${total} records` : 'Your record at a glance'}
+        </h2>
+        <p className="mt-1 text-sm text-ink-muted">
+          {multi
+            ? 'A single incident rarely moves a platform, a police force or a court by itself — a pattern across several does. This reads straight off what’s saved here; nothing is sent anywhere to compute it.'
+            : 'Save another record and this section starts showing the pattern across them.'}
+        </p>
+      </div>
+
+      {demoCount > 0 ? (
+        <p className="text-xs text-ink-subtle">
+          Includes {demoCount} synthetic demo record{demoCount === 1 ? '' : 's'} — marked "Demo" below, not
+          filtered out of these counts.
+        </p>
+      ) : null}
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <SummaryBlock title="By category" rows={byCategory} />
+        <SummaryBlock title="By severity" rows={bySeverity} />
+      </div>
+
+      <dl className="flex flex-wrap gap-x-6 gap-y-2 border-t border-line pt-3 text-sm">
+        <div className="flex gap-1.5">
+          <dt className="text-ink-subtle">Platforms</dt>
+          <dd className="font-medium text-ink">
+            {byPlatform.length} distinct
+            {byPlatform[0]?.id && byPlatform[0].count > (byPlatform[1]?.count ?? 0)
+              ? ` — most often ${byPlatform[0].label}`
+              : ''}
+          </dd>
+        </div>
+        <div className="flex gap-1.5">
+          <dt className="text-ink-subtle">Timestamp proof</dt>
+          <dd className="font-medium text-ink">
+            {confirmed} confirmed &middot; {pending} pending &middot; {noProof} none
+          </dd>
+        </div>
+        <div className="flex gap-1.5">
+          <dt className="text-ink-subtle">Span</dt>
+          <dd className="font-medium text-ink">
+            {sameDay
+              ? new Date(earliestCapturedAt).toLocaleDateString(undefined, dateStyle)
+              : `${new Date(earliestCapturedAt).toLocaleDateString(undefined, dateStyle)} – ${new Date(latestCapturedAt).toLocaleDateString(undefined, dateStyle)}`}
+          </dd>
+        </div>
+      </dl>
+    </Card>
+  );
+}
+
+function SummaryBlock({ title, rows }: { title: string; rows: TallyRow[] }) {
+  return (
+    <div className="space-y-1.5">
+      <p className="text-xs font-semibold uppercase tracking-wide text-ink-subtle">{title}</p>
+      <ul className="flex flex-wrap gap-1.5">
+        {rows.map((row) => (
+          <li
+            key={row.id || '(unspecified)'}
+            className="inline-flex items-center gap-1 rounded-full bg-sunken px-2.5 py-1 text-xs font-medium text-ink"
+          >
+            {row.label}
+            <span className="text-ink-subtle">&middot; {row.count}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function VideoGlyph() {
   return (
     <svg viewBox="0 0 24 24" className="size-6" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6">
       <rect x="3" y="6" width="13" height="12" rx="2" />
       <path d="m16 10 5-3v10l-5-3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function MicGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-6" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
+      <path d="M12 17.5V21M9 21h6" />
     </svg>
   );
 }

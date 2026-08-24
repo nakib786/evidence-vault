@@ -12,6 +12,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, Callout, Card } from './ui';
 import PackageExportBundle from './PackageExportBundle';
+import { PinInput } from './PinInput';
 import { DEFAULT_DEMO_PIN } from '../lib/vaultCrypto';
 import type { EvidenceRecord } from '../lib/types';
 import type { useVault } from './useVault';
@@ -37,14 +38,18 @@ export default function ExportScreen({ items, packageId, vault, onStartOver, onO
   const allSaved = savedCount === items.length;
   const multi = items.length > 1;
 
-  const handleSave = async (): Promise<void> => {
+  // Takes an explicit PIN rather than always reading state, so `PinInput`'s `onComplete` —
+  // which can fire on Enter before a state update from the same keystroke has settled —
+  // hands over the value it just produced instead of racing that update.
+  const handleSave = async (pinValue: string = pin): Promise<void> => {
     setSaveError(null);
     setSaving(true);
     try {
       if (!vault.unlocked) {
-        const ok = await vault.unlock(pin);
+        const ok = await vault.unlock(pinValue);
         if (!ok) {
           setSaveError('That PIN doesn’t match the vault on this device.');
+          setPin('');
           return;
         }
       }
@@ -148,17 +153,12 @@ export default function ExportScreen({ items, packageId, vault, onStartOver, onO
 
             {!vault.unlocked ? (
               <div className="space-y-1.5">
-                <label htmlFor="export-vault-pin" className="block text-sm font-semibold text-ink">
-                  Vault PIN
-                </label>
-                <input
-                  id="export-vault-pin"
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  className="w-full rounded-xl border border-line-strong bg-surface px-4 py-3 text-base text-ink focus:border-accent focus:outline-none"
+                <PinInput
+                  label="Vault PIN"
                   value={pin}
-                  onChange={(e) => setPin(e.target.value)}
+                  onChange={setPin}
+                  onComplete={(value) => void handleSave(value)}
+                  disabled={saving}
                 />
                 <p className="text-xs text-ink-subtle">
                   Demo PIN: {DEFAULT_DEMO_PIN} — prefilled. Not real security; see “Vault” for what
@@ -170,7 +170,7 @@ export default function ExportScreen({ items, packageId, vault, onStartOver, onO
             {saveError ? <Callout tone="caution" title="Couldn’t save that">{saveError}</Callout> : null}
 
             <div className="flex flex-wrap gap-3">
-              <Button variant="secondary" onClick={handleSave} disabled={saving}>
+              <Button variant="secondary" onClick={() => void handleSave()} disabled={saving}>
                 {saving
                   ? 'Saving…'
                   : saveError

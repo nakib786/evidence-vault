@@ -4,8 +4,8 @@ import type { CalendarResult } from './ots';
 
 export type CaptureSource = 'live' | 'upload';
 
-/** Stills and recordings travel the same pipeline but differ in how they're presented. */
-export type MediaKind = 'image' | 'video';
+/** Stills, video and audio-only recordings travel the same pipeline but differ in how they're presented. */
+export type MediaKind = 'image' | 'video' | 'audio';
 
 export type Step = 'capture' | 'review' | 'handover' | 'export';
 
@@ -129,6 +129,14 @@ export interface CaptureMeta {
 
 export interface EvidenceRecord {
   id: string;
+  /**
+   * Ties this record to the other items captured in the same session — a burst, or several
+   * photos/videos taken back-to-back before moving on to review. Shared by every item saved
+   * from the same package (see `App.tsx`'s `packageId`), so the vault can show them as one
+   * report instead of one entry per item. Absent on a demo entry, since each of those stands
+   * alone rather than belonging to a batch.
+   */
+  packageId?: string;
   blob: Blob;
   mimeType: string;
   byteLength: number;

@@ -47,6 +47,7 @@ export default function VaultRecordScreen({ entry, vault, onBack, onRemoved, onO
     return () => URL.revokeObjectURL(url);
   }, [record]);
   const isVideoRecord = record.kind === 'video';
+  const isAudioRecord = record.kind === 'audio';
   const status = describeProofStatus(entry);
   const country = record.handover?.countryId ? findCountry(record.handover.countryId) : undefined;
 
@@ -65,7 +66,14 @@ export default function VaultRecordScreen({ entry, vault, onBack, onRemoved, onO
     async (result: UpgradeResult): Promise<void> => {
       const current = recordRef.current;
       if (!current.proof) return;
-      const updated: EvidenceRecord = { ...current, proof: { ...current.proof, ots: result.ots } };
+      // `pendingUris` has to move with `ots` here, not just the bytes — otherwise a fully
+      // confirmed record keeps listing calendars as still-pending until the next explicit
+      // proof import, even though the vault entry it's attached to is already showing
+      // "Confirmed" from `ots` alone.
+      const updated: EvidenceRecord = {
+        ...current,
+        proof: { ...current.proof, ots: result.ots, pendingUris: result.pendingUris },
+      };
       recordRef.current = updated;
       await vault.save(updated, { isDemo: false });
     },
@@ -139,7 +147,7 @@ export default function VaultRecordScreen({ entry, vault, onBack, onRemoved, onO
         <div className="flex items-center justify-between gap-3">
           <h2 className="font-display text-sm font-bold text-ink">What was captured</h2>
           <Button variant="quiet" className="px-3 py-1.5 text-sm" onClick={() => setRevealed((v) => !v)} aria-pressed={revealed}>
-            {revealed ? 'Hide' : isVideoRecord ? 'Show recording' : 'Show image'}
+            {revealed ? 'Hide' : isVideoRecord ? 'Show recording' : isAudioRecord ? 'Show player' : 'Show image'}
           </Button>
         </div>
         <div className="overflow-hidden rounded-xl border border-line bg-sunken">
@@ -152,6 +160,15 @@ export default function VaultRecordScreen({ entry, vault, onBack, onRemoved, onO
               playsInline
               className={`max-h-80 w-full bg-black object-contain transition-[filter] ${revealed ? '' : 'evidence-blur pointer-events-none'}`}
             />
+          ) : isAudioRecord ? (
+            revealed ? (
+              // eslint-disable-next-line jsx-a11y/media-has-caption -- reporter's own recording; transcript is shown separately below
+              <audio src={previewUrl ?? undefined} controls className="w-full p-4" />
+            ) : (
+              <div className="flex h-24 items-center justify-center text-sm text-ink-subtle">
+                Audio recording — hidden until shown
+              </div>
+            )
           ) : (
             <img
               src={previewUrl ?? undefined}
@@ -169,7 +186,7 @@ export default function VaultRecordScreen({ entry, vault, onBack, onRemoved, onO
           label="Captured"
           value={`${new Date(record.capturedAt).toLocaleString()} (${record.timeZone})`}
         />
-        {isVideoRecord ? (
+        {isVideoRecord || isAudioRecord ? (
           <Row label="Length" value={record.durationSeconds ? formatDuration(record.durationSeconds) : 'Not available'} />
         ) : null}
         {record.details.platform ? <Row label="Platform" value={record.details.platform} /> : null}

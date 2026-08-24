@@ -78,9 +78,11 @@ export function buildCoverLetter(record: EvidenceRecord, { stem, evidenceFilenam
   // ---- 1. What happened ---------------------------------------------------
   parts.push(heading('1. WHAT IS BEING REPORTED'));
   parts.push('');
+  const recordNoun =
+    record.kind === 'video' ? 'video recording' : record.kind === 'audio' ? 'audio recording' : 'still image';
   parts.push(
     wrap(
-      `A ${record.kind === 'video' ? 'video recording' : 'still image'} documenting an incident, ` +
+      `A ${recordNoun} documenting an incident, ` +
         `captured on ${captured.toLocaleDateString()} at ${captured.toLocaleTimeString()} (${record.timeZone}).`,
     ),
   );
@@ -96,7 +98,7 @@ export function buildCoverLetter(record: EvidenceRecord, { stem, evidenceFilenam
   if (record.details.location) {
     parts.push(`Location (reporter-supplied): ${formatLocation(record.details.location)}`);
   }
-  if (record.kind === 'video') {
+  if (record.kind === 'video' || record.kind === 'audio') {
     parts.push(
       `Recording length: ${record.durationSeconds ? formatDuration(record.durationSeconds) : 'not available'}`,
     );
@@ -111,7 +113,7 @@ export function buildCoverLetter(record: EvidenceRecord, { stem, evidenceFilenam
   }
 
   if (record.details.transcript.trim()) {
-    parts.push(heading(record.kind === 'video' ? '3. WHAT WAS SAID' : '3. TEXT VISIBLE IN THE IMAGE'));
+    parts.push(heading(record.kind === 'image' ? '3. TEXT VISIBLE IN THE IMAGE' : '3. WHAT WAS SAID'));
     parts.push('');
     parts.push(wrap(record.details.transcript.trim()));
     parts.push('');
@@ -258,8 +260,10 @@ export function buildPackageCoverLetter(
   parts.push('');
   records.forEach((record, i) => {
     const captured = new Date(record.capturedAt);
+    const recordNoun =
+      record.kind === 'video' ? 'video recording' : record.kind === 'audio' ? 'audio recording' : 'still image';
     parts.push(
-      `Item ${i + 1} of ${records.length} — ${record.kind === 'video' ? 'video recording' : 'still image'}, ` +
+      `Item ${i + 1} of ${records.length} — ${recordNoun}, ` +
         `captured ${captured.toLocaleDateString()} at ${captured.toLocaleTimeString()} (${record.timeZone}).`,
     );
     if (record.details.platform) parts.push(`  Where it happened: ${record.details.platform}`);
@@ -273,7 +277,7 @@ export function buildPackageCoverLetter(
     if (record.details.location) {
       parts.push(`  Location (reporter-supplied): ${formatLocation(record.details.location)}`);
     }
-    if (record.kind === 'video') {
+    if (record.kind === 'video' || record.kind === 'audio') {
       parts.push(
         `  Recording length: ${record.durationSeconds ? formatDuration(record.durationSeconds) : 'not available'}`,
       );
@@ -283,7 +287,7 @@ export function buildPackageCoverLetter(
     }
     if (record.details.transcript.trim()) {
       parts.push(
-        `  ${record.kind === 'video' ? 'What was said' : 'Text visible in the image'}: ` +
+        `  ${record.kind === 'image' ? 'Text visible in the image' : 'What was said'}: ` +
           wrap(record.details.transcript.trim(), 68).split('\n').join('\n    '),
       );
     }

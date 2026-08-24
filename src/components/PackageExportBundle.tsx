@@ -91,8 +91,8 @@ export default function PackageExportBundle({
           filename={reportFilename}
           description={
             items.length > 1
-              ? `The document to send onward. Walks through all ${items.length} items — each photo or ` +
-                'video contact sheet, your account for it, and how to verify it.'
+              ? `The document to send onward. Walks through all ${items.length} items — each photo, ` +
+                'video contact sheet or audio transcript, your account for it, and how to verify it.'
               : 'The document to send onward. Contains the content, your account, the fingerprint, and ' +
                 'instructions for verifying it.'
           }
@@ -110,24 +110,28 @@ export default function PackageExportBundle({
         {items.map((record, i) => {
           const evidenceFilename = evidenceFilenames[i];
           const isVideoRecord = record.kind === 'video';
+          const isAudioRecord = record.kind === 'audio';
           const cert = certificates[record.id];
           return (
             <div key={record.id} className="space-y-3 border-t border-line pt-4 first:border-0 first:pt-0">
               {items.length > 1 ? (
                 <p className="text-xs font-semibold uppercase tracking-wide text-ink-subtle">
-                  Item {i + 1} of {items.length} — {isVideoRecord ? 'video' : 'photo'}
+                  Item {i + 1} of {items.length} — {isVideoRecord ? 'video' : isAudioRecord ? 'audio' : 'photo'}
                 </p>
               ) : null}
 
               <DownloadRow
-                title={isVideoRecord ? 'Original recording' : 'Original image'}
+                title={isVideoRecord ? 'Original recording' : isAudioRecord ? 'Original audio' : 'Original image'}
                 filename={evidenceFilename}
                 description={
                   isVideoRecord
                     ? 'Keep this exactly as it is. The proof only verifies against these precise bytes — ' +
                       're-encoding, trimming or compressing the video will break the match.'
-                    : 'Keep this exactly as it is. The proof only verifies against these precise bytes — ' +
-                      're-saving, cropping or resizing it will break the match.'
+                    : isAudioRecord
+                      ? 'Keep this exactly as it is. The proof only verifies against these precise bytes — ' +
+                        're-encoding or trimming the audio will break the match.'
+                      : 'Keep this exactly as it is. The proof only verifies against these precise bytes — ' +
+                        're-saving, cropping or resizing it will break the match.'
                 }
                 done={saved.has(`image-${record.id}`)}
                 onDownload={() => {

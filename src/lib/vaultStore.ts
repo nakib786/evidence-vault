@@ -114,6 +114,7 @@ export const clearVault = async (): Promise<void> => {
 
 interface PackedMeta {
   id: string;
+  packageId?: string;
   mimeType: string;
   byteLength: number;
   source: EvidenceRecord['source'];
@@ -144,6 +145,7 @@ async function packRecord(record: EvidenceRecord): Promise<Uint8Array> {
   const mediaBytes = new Uint8Array(await record.blob.arrayBuffer());
   const meta: PackedMeta = {
     id: record.id,
+    packageId: record.packageId,
     mimeType: record.mimeType,
     byteLength: record.byteLength,
     source: record.source,
@@ -184,6 +186,7 @@ function unpackRecord(bytes: Uint8Array): EvidenceRecord {
 
   return {
     id: meta.id,
+    packageId: meta.packageId,
     blob: new Blob([mediaBytes], { type: meta.mimeType }),
     mimeType: meta.mimeType,
     byteLength: meta.byteLength,
