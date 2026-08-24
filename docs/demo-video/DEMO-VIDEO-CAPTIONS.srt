@@ -1,0 +1,118 @@
+1
+00:00:00,000 --> 00:00:10,123
+Someone shouts abuse on a bus. Someone posts a threat
+about a mosque. By the time anyone reports it, the
+evidence is gone.
+
+2
+00:00:11,003 --> 00:00:35,856
+This is Evidence Vault — a private, on-device way to
+document what happened. There's a short guided tour the
+first time you open it, and it's fully skippable.
+
+3
+00:00:38,017 --> 00:00:46,298
+Most of what this documents is spoken, not written — so
+the main way in is video, with sound.
+
+4
+00:00:47,018 --> 00:01:00,829
+It's fingerprinted the instant you stop recording — before
+it's ever a file that could be edited. That fingerprint is
+a SHA-256 hash: change one frame and it changes
+completely.
+
+5
+00:01:02,030 --> 00:01:12,154
+Only the fingerprint — never the recording — goes to four
+independent OpenTimestamps calendar servers, anchored on
+the Bitcoin blockchain. The recording itself never leaves
+this device.
+
+6
+00:01:13,034 --> 00:01:24,088
+The recording stays blurred until they choose to look, and
+every field describing what happened is optional.
+
+7
+00:01:25,049 --> 00:01:33,344
+They choose the category themselves. Evidence Vault ships
+no AI classifier — none of this ever goes to a third-party
+service.
+
+8
+00:01:34,065 --> 00:01:56,158
+Then the part most tools skip: where does this actually
+go? No police force accepts an automated submission, so we
+don't pretend to file one. Tell it where you are, and it
+shows who actually takes these reports — phone and web,
+side by side.
+
+9
+00:01:58,079 --> 00:02:07,293
+And for a lawyer or a court, it generates a certificate of
+authenticity — written to the Federal Rules of Evidence,
+or the Canada Evidence Act, depending on where you are.
+
+10
+00:02:08,094 --> 00:02:22,815
+The export is five files: the report, the original
+recording, the proof, the certificate, and a plain-text
+cover letter.
+
+11
+00:02:24,095 --> 00:02:31,463
+Every capture lands in an on-device vault — encrypted with
+a PIN, never uploaded anywhere.
+
+12
+00:02:32,104 --> 00:02:44,064
+Save more than one record and this app starts showing the
+pattern across them — by category, by severity, timestamp
+status, all in one place.
+
+13
+00:02:45,104 --> 00:02:56,148
+Any past record can be re-downloaded — report, recording,
+proof and certificate — any time, without ever
+re-uploading anything to get it back.
+
+14
+00:02:57,108 --> 00:03:03,549
+The person using this decides who else ever sees it.
+Nothing here depends on this app, or this device, still
+existing tomorrow.
+
+15
+00:03:04,109 --> 00:03:14,237
+When pointing a camera isn't safe, audio-only capture
+fingerprints a recording the same way — a call on speaker,
+a voicemail, someone talking nearby.
+
+16
+00:03:15,118 --> 00:03:27,079
+Only the microphone is ever used — never the camera — and
+it is fingerprinted the moment you stop.
+
+17
+00:03:28,119 --> 00:03:36,859
+One tap — quick exit — replaces the whole page instantly
+if someone walks in.
+
+18
+00:03:37,619 --> 00:03:50,499
+Anyone can independently verify the timestamp proof with
+the official OpenTimestamps process — not our code — and
+it keeps working even if this project disappears.
+
+19
+00:03:51,619 --> 00:04:02,659
+No account. No database. No analytics. Closing the tab
+deletes everything, because there was never anywhere else
+for it to be.
+
+20
+00:04:03,619 --> 00:04:10,962
+Thank you so much for taking the time to review Evidence
+Vault — we really appreciate it.
+

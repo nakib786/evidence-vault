@@ -1,0 +1,50 @@
+EVIDENCE VAULT — DEMO VIDEO TRANSCRIPT (screen-recorded walkthrough, on-screen captions)
+The Harvest Anti-Muslim Hate Hackathon (GNCI), August 2026
+Live: https://evidence-vault-8o6.pages.dev
+Source: https://github.com/nakib786/evidence-vault
+
+Note: every record shown is synthetic demo data. No real hateful content, and no real
+person's post, account or likeness, appears at any point.
+
+---
+
+[00:00:00] Someone shouts abuse on a bus. Someone posts a threat about a mosque. By the time anyone reports it, the evidence is gone.
+
+[00:00:11] This is Evidence Vault — a private, on-device way to document what happened. There's a short guided tour the first time you open it, and it's fully skippable.
+
+[00:00:38] Most of what this documents is spoken, not written — so the main way in is video, with sound.
+
+[00:00:47] It's fingerprinted the instant you stop recording — before it's ever a file that could be edited. That fingerprint is a SHA-256 hash: change one frame and it changes completely.
+
+[00:01:02] Only the fingerprint — never the recording — goes to four independent OpenTimestamps calendar servers, anchored on the Bitcoin blockchain. The recording itself never leaves this device.
+
+[00:01:13] The recording stays blurred until they choose to look, and every field describing what happened is optional.
+
+[00:01:25] They choose the category themselves. Evidence Vault ships no AI classifier — none of this ever goes to a third-party service.
+
+[00:01:34] Then the part most tools skip: where does this actually go? No police force accepts an automated submission, so we don't pretend to file one. Tell it where you are, and it shows who actually takes these reports — phone and web, side by side.
+
+[00:01:58] And for a lawyer or a court, it generates a certificate of authenticity — written to the Federal Rules of Evidence, or the Canada Evidence Act, depending on where you are.
+
+[00:02:08] The export is five files: the report, the original recording, the proof, the certificate, and a plain-text cover letter.
+
+[00:02:24] Every capture lands in an on-device vault — encrypted with a PIN, never uploaded anywhere.
+
+[00:02:32] Save more than one record and this app starts showing the pattern across them — by category, by severity, timestamp status, all in one place.
+
+[00:02:45] Any past record can be re-downloaded — report, recording, proof and certificate — any time, without ever re-uploading anything to get it back.
+
+[00:02:57] The person using this decides who else ever sees it. Nothing here depends on this app, or this device, still existing tomorrow.
+
+[00:03:04] When pointing a camera isn't safe, audio-only capture fingerprints a recording the same way — a call on speaker, a voicemail, someone talking nearby.
+
+[00:03:15] Only the microphone is ever used — never the camera — and it is fingerprinted the moment you stop.
+
+[00:03:28] One tap — quick exit — replaces the whole page instantly if someone walks in.
+
+[00:03:37] Anyone can independently verify the timestamp proof with the official OpenTimestamps process — not our code — and it keeps working even if this project disappears.
+
+[00:03:51] No account. No database. No analytics. Closing the tab deletes everything, because there was never anywhere else for it to be.
+
+[00:04:03] Thank you so much for taking the time to review Evidence Vault — we really appreciate it.
+
