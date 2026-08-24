@@ -21,6 +21,18 @@
  * and lets this hook pick the walkthrough back up wherever the app actually is now. That
  * indirection is what lets one continuous tour cross screens the tour itself knows nothing
  * about, rather than stopping every time it reaches a screen boundary.
+ *
+ * Going backward across that same boundary works the same way in reverse, via
+ * `onSectionBack`: driver.js only ever knows about the *current* section's steps, so it
+ * disables its own Previous button the moment there is no earlier step in that list — it has
+ * no idea the walkthrough continues in a section it hasn't been told about yet. `onPrevClick`
+ * below overrides that: within a section it still just calls `movePrevious()`, but on a
+ * section's first step it hands off to `onSectionBack`, which is `App.tsx`'s job to undo one
+ * step of `advanceDemo` (go back to the previous screen, re-lock the vault if that's what
+ * being on the earlier screen required, and so on). If it reports there was nothing earlier
+ * to go back to, the click is simply a no-op. Either way, once `section` changes as a result,
+ * the restart effect below needs to land on that section's *last* step rather than its
+ * first — `startAtEndRef` is how `onSectionBack` tells it to do that.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Driver } from 'driver.js';
@@ -35,19 +47,25 @@ const PLAY_ICON =
   '<path d="M7.5 4.7v14.6a1 1 0 0 0 1.53.85l11.6-7.3a1 1 0 0 0 0-1.7l-11.6-7.3a1 1 0 0 0-1.53.85z"/>' +
   '</svg>';
 
-export function useTour(section: TourSection, onSectionEnd: () => void) {
+export function useTour(section: TourSection, onSectionEnd: () => void, onSectionBack: () => boolean) {
   const [active, setActive] = useState(false);
   const driverRef = useRef<Driver | null>(null);
   const activeRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playingRef = useRef(true);
+  // Set by `onPrevClick` the instant it hands off to `onSectionBack`, so the restart effect
+  // below knows the section it's about to build steps for was just retreated *into* rather
+  // than advanced into, and should open on that section's last step, not its first.
+  const startAtEndRef = useRef(false);
 
-  // Always the latest `onSectionEnd`, without making it a dependency of the effect below —
-  // that effect must only restart driver when the section itself changes, not on every
-  // render where the App component happens to hand in a new function identity.
+  // Always the latest `onSectionEnd`/`onSectionBack`, without making them dependencies of the
+  // effect below — that effect must only restart driver when the section itself changes, not
+  // on every render where the App component happens to hand in new function identities.
   const onSectionEndRef = useRef(onSectionEnd);
+  const onSectionBackRef = useRef(onSectionBack);
   useEffect(() => {
     onSectionEndRef.current = onSectionEnd;
+    onSectionBackRef.current = onSectionBack;
   });
 
   const clearTimer = useCallback(() => {
@@ -148,6 +166,19 @@ export function useTour(section: TourSection, onSectionEnd: () => void) {
         // autoplay does when it reaches the end of that step on its own, rather than
         // closing the tour outright.
         onDoneClick: () => onSectionEndRef.current(),
+        // Overrides driver.js's own Previous handling (which would just no-op at a
+        // section's first step) so Back can cross a screen boundary the same way autoplay
+        // and "Done" already cross forward. Within a section this still just steps back
+        // normally; only the boundary itself is different.
+        onPrevClick: () => {
+          const current = driverRef.current;
+          if (!current) return;
+          if (current.hasPreviousStep()) {
+            current.movePrevious();
+            return;
+          }
+          if (onSectionBackRef.current()) startAtEndRef.current = true;
+        },
         // Fires for the close button, the overlay, and the Escape key alike. Unlike
         // reaching the end of a section, these are always an explicit exit.
         onDestroyStarted: () => {
@@ -162,6 +193,14 @@ export function useTour(section: TourSection, onSectionEnd: () => void) {
          * needs no special wiring to be clickable under the tour's overlay.
          */
         onPopoverRender: (popover) => {
+          // driver.js hard-disables the Previous button (and greys it out via a CSS class
+          // that also sets `pointer-events: none`) whenever the *current section's* step
+          // list has nothing before this one — it can't know the walkthrough continues in a
+          // section it hasn't built yet. Force it back on so a press always reaches
+          // `onPrevClick` above, which is what actually decides whether to cross sections.
+          popover.previousButton.disabled = false;
+          popover.previousButton.classList.remove('driver-popover-btn-disabled');
+
           const bar = document.createElement('div');
           bar.className = 'ev-tour-autobar';
           const fill = document.createElement('div');
@@ -204,7 +243,12 @@ export function useTour(section: TourSection, onSectionEnd: () => void) {
         },
       });
       driverRef.current = d;
-      d.drive();
+      // Landing on the last step here, rather than the first, is what makes Back on the
+      // section we just left behave like it walked into this one from its far end instead
+      // of restarting it from scratch.
+      const startAtEnd = startAtEndRef.current;
+      startAtEndRef.current = false;
+      d.drive(startAtEnd ? present.length - 1 : 0);
     })();
 
     return () => {

@@ -72,7 +72,7 @@ export default function NearbyResourcesSection() {
   };
 
   return (
-    <Card as="div" className="space-y-4">
+    <Card as="div" className="space-y-4" data-tour="nearby-help">
       <div>
         <h2 className="font-display text-lg font-bold text-ink">Find help nearby</h2>
         <p className="mt-1 text-sm text-ink-muted">

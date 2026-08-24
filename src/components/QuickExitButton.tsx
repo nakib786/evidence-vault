@@ -19,6 +19,7 @@ export default function QuickExitButton() {
   return (
     <button
       type="button"
+      data-tour="quick-exit"
       onClick={() => window.location.replace(SAFE_URL)}
       aria-label="Quick exit — leave this site immediately, replaced with an ordinary page"
       title="Leave this site immediately"

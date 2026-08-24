@@ -358,7 +358,7 @@ function ItemCard({
             </Field>
 
             {/* ---- Location (optional, GPS read only on request) ---- */}
-            <div>
+            <div data-tour={index === 0 ? 'location' : undefined}>
               <p className="font-display text-sm font-semibold text-ink">
                 Pin the location <span className="ml-1.5 font-sans font-normal text-ink-subtle">optional</span>
               </p>

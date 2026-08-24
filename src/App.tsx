@@ -189,18 +189,50 @@ export default function App() {
   }, [view]);
 
   // What the tour should be narrating right now. The vault is a separate `view`, not part
-  // of the `step` machine, and "locked" / "empty" / "has records" are each a different set
-  // of elements on screen — so it gets three sections of its own rather than one, the same
-  // reason the main flow is split by `Step` instead of being a single long section.
+  // of the `step` machine, and "locked" / "empty" / "has records" / "one open record" /
+  // "a multi-item report" are each a different set of elements on screen — so it gets
+  // sections of its own rather than one, the same reason the main flow is split by `Step`
+  // instead of being a single long section.
   const vaultTourSection: TourSection = !vault.unlocked
     ? 'vault-locked'
     : vault.entries.length === 0
       ? 'vault-empty'
       : 'vault-list';
   const tourSection: TourSection =
-    view === 'verify' ? 'verify' : view === 'vault' ? (vaultEntryId ? 'vault-record' : vaultTourSection) : step;
+    view === 'verify'
+      ? 'verify'
+      : view === 'vault'
+        ? vaultEntryId
+          ? 'vault-record'
+          : vaultPackageId
+            ? 'vault-package'
+            : vaultTourSection
+        : step;
 
   const stopRef = useRef<() => void>(() => {});
+
+  /**
+   * Everything needed to put a previous screen of the guided tour back on screen. Pushed by
+   * `advanceDemo` right before each forward move, and popped by `retreatDemo` below when
+   * Back is pressed on a section's very first step (see `useTour`'s own comment for why that
+   * needs App-level help rather than something driver.js can do by itself).
+   *
+   * Plain navigational state is enough for most of these — `retreatDemo` just hands the
+   * fields back to their setters and lets `tourSection` recompute from there, same as it
+   * does for any other state change. The one exception is the vault's lock state, which
+   * isn't part of this navigation at all: unlocking it is a side effect `advanceDemo` sets
+   * off (see the `'vault-locked'` case below), not a value stored anywhere this snapshot
+   * would naturally capture, so `relock` says to explicitly re-lock it when this checkpoint
+   * is the one being restored.
+   */
+  interface TourCheckpoint {
+    step: Step;
+    view: 'flow' | 'vault' | 'verify';
+    vaultEntryId: string | null;
+    vaultPackageId: string | null;
+    relock: boolean;
+  }
+  const tourCheckpointsRef = useRef<TourCheckpoint[]>([]);
 
   /**
    * Reaching the end of a section's steps hands control here instead of stopping the tour,
@@ -215,8 +247,17 @@ export default function App() {
    * it through a ref rather than an effect dependency.
    */
   function advanceDemo(): void {
+    // Where Back should return to if pressed on the very first step of whatever section
+    // this move is about to land on — i.e. this render's state, before the branch below
+    // changes any of it. `relock` only ever applies to the checkpoint pushed just before
+    // the vault is unlocked; see the interface comment above.
+    function checkpoint(relock = false): void {
+      tourCheckpointsRef.current.push({ step, view, vaultEntryId, vaultPackageId, relock });
+    }
+
     switch (tourSection) {
       case 'capture':
+        checkpoint();
         void (async () => {
           try {
             const payload = await buildDemoCapture();
@@ -232,6 +273,7 @@ export default function App() {
         })();
         break;
       case 'review': {
+        checkpoint();
         // Fill in a jurisdiction before moving on, so "who to contact" and "certificate" —
         // which only render once a country is chosen — have something real to show
         // instead of two of the next section's three steps being skipped.
@@ -249,26 +291,47 @@ export default function App() {
         break;
       }
       case 'handover':
+        checkpoint();
         setStep('export');
         break;
       case 'export':
+        checkpoint();
         setVaultEntryId(null);
         setVaultPackageId(null);
         setView('vault');
         break;
       case 'vault-locked':
+        checkpoint(true);
         void vault.unlock(DEFAULT_DEMO_PIN);
         break;
       case 'vault-empty':
+        // No checkpoint: once these demo records are loaded they stay in the vault for the
+        // rest of the session (this only ever seeds real, if synthetic, storage — see
+        // `useVault.loadDemo`), so there's no real "empty" screen left to retreat back into.
+        // Back from 'vault-list' instead pops the 'vault-locked' checkpoint above it, which
+        // is the nearest state that's still true.
         void vault.loadDemo();
         break;
       case 'vault-list': {
+        checkpoint();
         const first = vault.entries[0];
         if (first) setVaultEntryId(first.record.id);
         else stopRef.current();
         break;
       }
+      case 'vault-package': {
+        // Only ever reached by hand (see `lib/tour.ts`), so unlike every other case this
+        // isn't part of `advanceDemo`'s own chain — it's here so autoplay and "Done" have
+        // somewhere to go if the tour happens to be open while someone is browsing a report,
+        // rather than silently doing nothing. Opening its first item mirrors 'vault-list'.
+        checkpoint();
+        const first = entriesForPackage(vault.entries, vaultPackageId ?? '')[0];
+        if (first) setVaultEntryId(first.record.id);
+        else stopRef.current();
+        break;
+      }
       case 'vault-record':
+        checkpoint();
         // Walk into the standalone verify page next, rather than ending the tour here.
         setVaultEntryId(null);
         setView('verify');
@@ -285,10 +348,53 @@ export default function App() {
     }
   }
 
-  const tour = useTour(tourSection, advanceDemo);
+  /**
+   * Undoes one step of `advanceDemo`, for Back pressed on a section's first step. Returns
+   * whether it actually moved anything, which is how `useTour` knows whether to land the
+   * section it's about to rebuild on that section's last step (see its own comment) or, if
+   * there was nothing earlier on record, to leave the click as a no-op.
+   *
+   * 'vault-package' gets its own direct rule rather than going through the checkpoint stack:
+   * it's always opened by hand, straight off the vault list (see `advanceDemo`'s comment on
+   * that case), so "back" from it unconditionally means the vault list, the same as its own
+   * on-screen Back control — not whatever unrelated checkpoint happens to be sitting on top
+   * of the stack from an earlier, unfinished walk through the main flow.
+   */
+  function retreatDemo(): boolean {
+    if (tourSection === 'vault-package') {
+      setVaultPackageId(null);
+      return true;
+    }
+    const checkpoint = tourCheckpointsRef.current.pop();
+    if (!checkpoint) return false;
+    setStep(checkpoint.step);
+    setView(checkpoint.view);
+    // Leaving the vault for any reason — including forward, to Verify — locks it right back
+    // up (see the view-exit effect above), which drops `entries` along with the key. A
+    // checkpoint recorded while a record or package was open can go stale for exactly that
+    // reason: if the vault has since re-locked, restoring its id would just hand back an id
+    // `vault.entries` no longer has, and the lookup in the render below would show nothing at
+    // all rather than a screen. Recovering the actual open record would mean the PIN again,
+    // which nothing here has, so this falls back to whatever the vault honestly is right now
+    // — locked — instead of pointing at one that no longer exists.
+    const vaultStillOpen = checkpoint.view !== 'vault' || vault.unlocked;
+    setVaultEntryId(vaultStillOpen ? checkpoint.vaultEntryId : null);
+    setVaultPackageId(vaultStillOpen ? checkpoint.vaultPackageId : null);
+    if (checkpoint.relock) vault.lock();
+    return true;
+  }
+
+  const tour = useTour(tourSection, advanceDemo, retreatDemo);
   useEffect(() => {
     stopRef.current = tour.stop;
   }, [tour.stop]);
+  // Each run of the tour retreats only through screens it advanced through itself this run
+  // — see `retreatDemo`'s own comment — so a fresh start (however it's launched: the header
+  // button, the welcome dialog, ending and reopening it) should never inherit an earlier
+  // run's checkpoints.
+  useEffect(() => {
+    if (tour.active) tourCheckpointsRef.current = [];
+  }, [tour.active]);
 
   const closeVault = useCallback(() => {
     setView('flow');
@@ -601,7 +707,7 @@ export default function App() {
               </li>
             </ul>
           </div>
-          <div className="mt-4 border-t border-line pt-3">
+          <div className="mt-4 border-t border-line pt-3" data-tour="ip-echo">
             <p>
               Your IP address for this visit — IPv4:{' '}
               <IpBadge loading={myIp.loadingV4} value={myIp.ipv4} /> &nbsp;·&nbsp; IPv6:{' '}
@@ -613,7 +719,12 @@ export default function App() {
         </footer>
       </div>
 
-      <LiveChatBubble suppressed={welcome !== null || tour.active || confirmHomeOpen || faqOpen} />
+      {/* Left visible through the tour itself (unlike the welcome dialogs) so the tour can
+          point at it — see the 'live-chat' step in `lib/tour.ts`. driver.js already dims and
+          disables every element except whatever step is currently highlighted, the same
+          treatment every other on-screen control gets, so this needs no special handling
+          beyond staying mounted. */}
+      <LiveChatBubble suppressed={welcome !== null || confirmHomeOpen || faqOpen} />
       <QuickExitButton />
     </div>
   );

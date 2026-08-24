@@ -152,6 +152,7 @@ export default function LiveChatBubble({ suppressed = false }: { suppressed?: bo
 
       <button
         type="button"
+        data-tour="live-chat"
         onClick={() => {
           setOpen((v) => !v);
           setSeen(true);
